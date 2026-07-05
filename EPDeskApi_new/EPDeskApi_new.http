@@ -1,0 +1,6 @@
+@EPDeskApi_new_HostAddress = http://localhost:5102
+
+GET {{EPDeskApi_new_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###

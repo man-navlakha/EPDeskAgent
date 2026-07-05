@@ -1,0 +1,172 @@
+﻿using EPDeskServerApi.Data;
+using EPDeskServerApi.Models;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
+
+namespace EPDeskServerApi.Controllers;
+
+[ApiController]
+[Route("api/admin")]
+public class AdminController : ControllerBase
+{
+    private readonly AppDbContext _db;
+
+    public AdminController(AppDbContext db)
+    {
+        _db = db;
+    }
+
+    [HttpGet("devices")]
+    public async Task<IActionResult> GetDevices()
+    {
+        var now = DateTime.UtcNow;
+
+        var devices = await _db.Devices
+            .OrderBy(x => x.DeviceCode)
+            .Select(x => new
+            {
+                x.DeviceCode,
+                x.Hostname,
+                x.Username,
+                Status = x.LastSeenAtUtc != null &&
+                         x.LastSeenAtUtc > now.AddMinutes(-2)
+                    ? "online"
+                    : "offline",
+                x.LastSeenAtUtc
+            })
+            .ToListAsync();
+
+        return Ok(devices);
+    }
+
+    [HttpGet("files/search")]
+    public async Task<IActionResult> SearchFiles([FromQuery] string query)
+    {
+        if (string.IsNullOrWhiteSpace(query))
+        {
+            return BadRequest("Search query is required.");
+        }
+
+        var results = await _db.FileIndexes
+            .Where(x => x.FileName.Contains(query) || x.FullPath.Contains(query))
+            .OrderByDescending(x => x.UpdatedAtUtc)
+            .Take(100)
+            .Select(x => new
+            {
+                x.DeviceCode,
+                x.FileName,
+                x.FullPath,
+                x.DirectoryPath,
+                x.Extension,
+                x.SizeBytes,
+                x.CreatedAtUtc,
+                x.UpdatedAtUtc
+            })
+            .ToListAsync();
+
+        return Ok(results);
+    }
+
+    [HttpPost("file-requests")]
+    public async Task<IActionResult> CreateFileRequest(CreateFileRequestDto dto)
+    {
+        if (string.IsNullOrWhiteSpace(dto.DeviceCode))
+        {
+            return BadRequest("Device code is required.");
+        }
+
+        if (string.IsNullOrWhiteSpace(dto.RequestedPath))
+        {
+            return BadRequest("Requested file path is required.");
+        }
+
+        var request = new FileRequest
+        {
+            Id = Guid.NewGuid(),
+            DeviceCode = dto.DeviceCode,
+            RequestedPath = dto.RequestedPath,
+            RequestedBy = dto.RequestedBy,
+            Reason = dto.Reason,
+            Status = "pending",
+            RequestedAtUtc = DateTime.UtcNow
+        };
+
+        _db.FileRequests.Add(request);
+
+        await _db.SaveChangesAsync();
+
+        return Ok(new
+        {
+            success = true,
+            requestId = request.Id,
+            status = request.Status
+        });
+    }
+
+    [HttpGet("file-requests")]
+    public async Task<IActionResult> GetFileRequests()
+    {
+        var requests = await _db.FileRequests
+            .OrderByDescending(x => x.RequestedAtUtc)
+            .Take(100)
+            .Select(x => new
+            {
+                x.Id,
+                x.DeviceCode,
+                x.RequestedPath,
+                x.RequestedBy,
+                x.Reason,
+                x.Status,
+                x.RequestedAtUtc,
+                x.StartedAtUtc,
+                x.CompletedAtUtc,
+                x.OriginalFileName,
+                x.ErrorMessage
+            })
+            .ToListAsync();
+
+        return Ok(requests);
+    }
+
+    [HttpGet("file-requests/{id:guid}/download")]
+    public async Task<IActionResult> DownloadFile(Guid id)
+    {
+        var request = await _db.FileRequests.FirstOrDefaultAsync(x => x.Id == id);
+
+        if (request == null)
+        {
+            return NotFound("File request not found.");
+        }
+
+        if (request.Status != "completed")
+        {
+            return BadRequest($"File is not ready. Current status: {request.Status}");
+        }
+
+        if (string.IsNullOrWhiteSpace(request.ServerFilePath))
+        {
+            return BadRequest("Server file path is empty.");
+        }
+
+        if (!System.IO.File.Exists(request.ServerFilePath))
+        {
+            return NotFound("Uploaded file not found on server.");
+        }
+
+        var downloadFileName = request.OriginalFileName ?? Path.GetFileName(request.ServerFilePath);
+
+        return PhysicalFile(
+            request.ServerFilePath,
+            "application/octet-stream",
+            downloadFileName
+        );
+    }
+}
+
+public class CreateFileRequestDto
+{
+    public string DeviceCode { get; set; } = "";
+    public string RequestedPath { get; set; } = "";
+    public string RequestedBy { get; set; } = "";
+    public string Reason { get; set; } = "";
+}
