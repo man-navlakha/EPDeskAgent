@@ -60,51 +60,112 @@ public class AgentController : ControllerBase
     [HttpPost("files/batch")]
     public async Task<IActionResult> SyncFiles(FileBatchRequest request)
     {
-        foreach (var file in request.Files)
+        try
         {
-            var existing = await _db.FileIndexes.FirstOrDefaultAsync(x =>
-                x.DeviceCode == request.DeviceCode &&
-                x.FullPath == file.FullPath);
-
-            if (existing == null)
+            if (request == null)
             {
-                existing = new FileIndex
+                return BadRequest("Request body is empty.");
+            }
+
+            if (string.IsNullOrWhiteSpace(request.DeviceCode))
+            {
+                return BadRequest("Device code is required.");
+            }
+
+            if (request.Files == null || request.Files.Count == 0)
+            {
+                return Ok(new
                 {
-                    Id = Guid.NewGuid(),
-                    DeviceCode = request.DeviceCode,
-                    FullPath = file.FullPath,
-                    DirectoryPath = file.DirectoryPath,
-                    FileName = file.FileName,
-                    Extension = file.Extension,
-                    SizeBytes = file.SizeBytes,
-                    CreatedAtUtc = file.CreatedAtUtc,
-                    UpdatedAtUtc = file.UpdatedAtUtc,
-                    LastIndexedAtUtc = DateTime.UtcNow,
-                    IsDeleted = file.IsDeleted
-                };
+                    success = true,
+                    count = 0,
+                    message = "No files received."
+                });
+            }
 
-                _db.FileIndexes.Add(existing);
-            }
-            else
+            foreach (var file in request.Files)
             {
-                existing.DirectoryPath = file.DirectoryPath;
-                existing.FileName = file.FileName;
-                existing.Extension = file.Extension;
-                existing.SizeBytes = file.SizeBytes;
-                existing.CreatedAtUtc = file.CreatedAtUtc;
-                existing.UpdatedAtUtc = file.UpdatedAtUtc;
-                existing.LastIndexedAtUtc = DateTime.UtcNow;
-                existing.IsDeleted = file.IsDeleted;
+                if (string.IsNullOrWhiteSpace(file.FullPath))
+                {
+                    continue;
+                }
+
+                var existing = await _db.FileIndexes.FirstOrDefaultAsync(x =>
+                    x.DeviceCode == request.DeviceCode &&
+                    x.FullPath == file.FullPath);
+
+                var createdAtUtc = ForceUtc(file.CreatedAtUtc);
+                var updatedAtUtc = ForceUtc(file.UpdatedAtUtc);
+
+                if (existing == null)
+                {
+                    existing = new FileIndex
+                    {
+                        Id = Guid.NewGuid(),
+                        DeviceCode = request.DeviceCode,
+                        FullPath = file.FullPath,
+                        DirectoryPath = file.DirectoryPath ?? "",
+                        FileName = file.FileName ?? "",
+                        Extension = file.Extension ?? "",
+                        SizeBytes = file.SizeBytes,
+                        CreatedAtUtc = createdAtUtc,
+                        UpdatedAtUtc = updatedAtUtc,
+                        LastIndexedAtUtc = DateTime.UtcNow,
+                        IsDeleted = file.IsDeleted
+                    };
+
+                    _db.FileIndexes.Add(existing);
+                }
+                else
+                {
+                    existing.DirectoryPath = file.DirectoryPath ?? "";
+                    existing.FileName = file.FileName ?? "";
+                    existing.Extension = file.Extension ?? "";
+                    existing.SizeBytes = file.SizeBytes;
+                    existing.CreatedAtUtc = createdAtUtc;
+                    existing.UpdatedAtUtc = updatedAtUtc;
+                    existing.LastIndexedAtUtc = DateTime.UtcNow;
+                    existing.IsDeleted = file.IsDeleted;
+                }
             }
+
+            await _db.SaveChangesAsync();
+
+            return Ok(new
+            {
+                success = true,
+                count = request.Files.Count
+            });
+        }
+        catch (Exception ex)
+        {
+            return StatusCode(500, new
+            {
+                success = false,
+                error = ex.Message,
+                inner = ex.InnerException?.Message,
+                stack = ex.StackTrace
+            });
+        }
+    }
+
+    private static DateTime ForceUtc(DateTime value)
+    {
+        if (value == default)
+        {
+            return DateTime.UtcNow;
         }
 
-        await _db.SaveChangesAsync();
-
-        return Ok(new
+        if (value.Kind == DateTimeKind.Utc)
         {
-            success = true,
-            count = request.Files.Count
-        });
+            return value;
+        }
+
+        if (value.Kind == DateTimeKind.Local)
+        {
+            return value.ToUniversalTime();
+        }
+
+        return DateTime.SpecifyKind(value, DateTimeKind.Utc);
     }
 
     [HttpGet("commands")]

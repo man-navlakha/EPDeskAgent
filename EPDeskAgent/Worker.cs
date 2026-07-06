@@ -71,7 +71,7 @@ public class Worker : BackgroundService
 
     private async Task SyncPendingFilesAsync()
     {
-        const int batchSize = 500;
+        const int batchSize = 100;
 
         while (true)
         {

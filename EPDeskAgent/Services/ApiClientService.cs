@@ -92,7 +92,14 @@ public class ApiClientService
                 return true;
             }
 
-            _logger.LogWarning("File sync failed: {StatusCode}", response.StatusCode);
+            var errorBody = await response.Content.ReadAsStringAsync();
+
+            _logger.LogWarning(
+                "File sync failed: {StatusCode}. Server response: {ErrorBody}",
+                response.StatusCode,
+                errorBody
+            );
+
             return false;
         }
         catch (Exception ex)
