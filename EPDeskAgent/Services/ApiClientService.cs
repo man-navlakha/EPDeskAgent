@@ -25,10 +25,20 @@ public class ApiClientService
             _httpClient.BaseAddress = new Uri(apiBaseUrl);
         }
     }
+    private string GetDeviceCode()
+    {
+        var deviceCode = _configuration["Agent:DeviceCode"];
 
+        if (string.IsNullOrWhiteSpace(deviceCode))
+        {
+            deviceCode = Environment.MachineName;
+        }
+
+        return deviceCode.Trim().ToUpperInvariant();
+    }
     public async Task SendHeartbeatAsync()
     {
-        var deviceCode = _configuration["Agent:DeviceCode"] ?? Environment.MachineName;
+        var deviceCode = GetDeviceCode();
 
         var request = new
         {
@@ -64,7 +74,7 @@ public class ApiClientService
             return true;
         }
 
-        var deviceCode = _configuration["Agent:DeviceCode"] ?? Environment.MachineName;
+        var deviceCode = GetDeviceCode();
 
         var request = new
         {
@@ -111,7 +121,7 @@ public class ApiClientService
 
     public async Task<List<AgentCommand>> GetCommandsAsync()
     {
-        var deviceCode = _configuration["Agent:DeviceCode"] ?? Environment.MachineName;
+        var deviceCode = GetDeviceCode();
 
         try
         {

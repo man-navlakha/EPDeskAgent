@@ -14,6 +14,7 @@ builder.Services.AddSingleton<LocalDatabase>();
 builder.Services.AddSingleton<FileMetadataRepository>();
 builder.Services.AddSingleton<FileScanner>();
 builder.Services.AddSingleton<ApiClientService>();
+builder.Services.AddSingleton<AutoUpdateService>();
 
 builder.Services.AddHostedService<Worker>();
 

@@ -28,6 +28,8 @@ public class FileScanner
             deviceCode = Environment.MachineName;
         }
 
+        deviceCode = deviceCode.Trim().ToUpperInvariant();
+
         var scanFolders = GetScanFolders();
 
         var excludedFolders = _configuration

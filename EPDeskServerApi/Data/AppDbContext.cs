@@ -13,6 +13,7 @@ public class AppDbContext : DbContext
     public DbSet<Device> Devices => Set<Device>();
     public DbSet<FileIndex> FileIndexes => Set<FileIndex>();
     public DbSet<FileRequest> FileRequests => Set<FileRequest>();
+    public DbSet<AgentVersion> AgentVersions => Set<AgentVersion>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -35,5 +36,12 @@ public class AppDbContext : DbContext
 
         modelBuilder.Entity<FileRequest>()
             .HasIndex(x => x.Status);
+
+        modelBuilder.Entity<AgentVersion>()
+            .HasIndex(x => x.Version)
+            .IsUnique();
+
+        modelBuilder.Entity<AgentVersion>()
+            .HasIndex(x => x.IsActive);
     }
 }
