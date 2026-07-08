@@ -1,0 +1,7 @@
+dotnet publish .\EPDeskAgent.csproj -c Release -r win-x64 --self-contained true /p:PublishSingleFile=true /p:IncludeNativeLibrariesForSelfExtract=true /p:PublishTrimmed=false -o C:\EPDeskAgentPublish
+
+Copy-Item ".\appsettings.json" "C:\EPDeskAgentPublish\appsettings.json" -Force
+
+cd C:\EPDeskAgentMsi
+
+wix build .\Package.wxs -o .\EPDeskAgentSetup-1.0.2.msi

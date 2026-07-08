@@ -128,6 +128,100 @@ public class AdminController : ControllerBase
         return Ok(requests);
     }
 
+    [HttpGet("devices/{deviceCode}/files")]
+    public async Task<IActionResult> GetDeviceFiles(
+    string deviceCode,
+    [FromQuery] int page = 1,
+    [FromQuery] int pageSize = 100,
+    [FromQuery] string? query = null,
+    [FromQuery] string? extension = null,
+    [FromQuery] bool includeDeleted = false)
+    {
+        if (string.IsNullOrWhiteSpace(deviceCode))
+        {
+            return BadRequest("Device code is required.");
+        }
+
+        if (page <= 0)
+        {
+            page = 1;
+        }
+
+        if (pageSize <= 0)
+        {
+            pageSize = 100;
+        }
+
+        if (pageSize > 500)
+        {
+            pageSize = 500;
+        }
+
+        var normalizedDeviceCode = deviceCode.Trim().ToUpper();
+
+        var filesQuery = _db.FileIndexes
+            .Where(x => x.DeviceCode.ToUpper() == normalizedDeviceCode);
+
+        if (!includeDeleted)
+        {
+            filesQuery = filesQuery.Where(x => !x.IsDeleted);
+        }
+
+        if (!string.IsNullOrWhiteSpace(query))
+        {
+            var search = query.Trim().ToLower();
+
+            filesQuery = filesQuery.Where(x =>
+                x.FileName.ToLower().Contains(search) ||
+                x.FullPath.ToLower().Contains(search) ||
+                x.DirectoryPath.ToLower().Contains(search));
+        }
+
+        if (!string.IsNullOrWhiteSpace(extension))
+        {
+            var ext = extension.Trim();
+
+            if (!ext.StartsWith("."))
+            {
+                ext = "." + ext;
+            }
+
+            filesQuery = filesQuery.Where(x => x.Extension.ToLower() == ext.ToLower());
+        }
+
+        var totalFiles = await filesQuery.CountAsync();
+
+        var files = await filesQuery
+            .OrderByDescending(x => x.UpdatedAtUtc)
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
+            .Select(x => new
+            {
+                x.Id,
+                x.DeviceCode,
+                x.FileName,
+                x.FullPath,
+                x.DirectoryPath,
+                x.Extension,
+                x.SizeBytes,
+                x.CreatedAtUtc,
+                x.UpdatedAtUtc,
+                x.LastIndexedAtUtc,
+                x.IsDeleted
+            })
+            .ToListAsync();
+
+        return Ok(new
+        {
+            deviceCode = normalizedDeviceCode,
+            page,
+            pageSize,
+            totalFiles,
+            totalPages = (int)Math.Ceiling(totalFiles / (double)pageSize),
+            files
+        });
+    }
+
     [HttpGet("file-requests/{id:guid}/download")]
     public async Task<IActionResult> DownloadFile(Guid id)
     {
