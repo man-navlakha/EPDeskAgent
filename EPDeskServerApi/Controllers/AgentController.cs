@@ -2,7 +2,7 @@
 using EPDeskServerApi.Models;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
-
+using System.Text.Json;
 namespace EPDeskServerApi.Controllers;
 
 [ApiController]
@@ -176,26 +176,62 @@ public class AgentController : ControllerBase
             return BadRequest("Device code is required.");
         }
 
+        var normalizedDeviceCode = deviceCode.Trim().ToUpperInvariant();
+
         var requests = await _db.FileRequests
-            .Where(x => x.DeviceCode == deviceCode && x.Status == "pending")
+            .Where(x => x.DeviceCode == normalizedDeviceCode && x.Status == "pending")
             .OrderBy(x => x.RequestedAtUtc)
             .Take(5)
             .ToListAsync();
+
+        var commands = new List<object>();
 
         foreach (var request in requests)
         {
             request.Status = "sent_to_agent";
             request.StartedAtUtc = DateTime.UtcNow;
+
+            if (request.RequestType == "multiple_files_zip")
+            {
+                var paths = new List<string>();
+
+                if (!string.IsNullOrWhiteSpace(request.RequestedPathsJson))
+                {
+                    paths = JsonSerializer.Deserialize<List<string>>(request.RequestedPathsJson)
+                        ?? new List<string>();
+                }
+
+                commands.Add(new
+                {
+                    type = "UPLOAD_ZIP",
+                    requestType = "multiple_files_zip",
+                    requestId = request.Id,
+                    paths
+                });
+            }
+            else if (request.RequestType == "folder_zip")
+            {
+                commands.Add(new
+                {
+                    type = "UPLOAD_ZIP",
+                    requestType = "folder_zip",
+                    requestId = request.Id,
+                    folderPath = request.RequestedPath
+                });
+            }
+            else
+            {
+                commands.Add(new
+                {
+                    type = "UPLOAD_FILE",
+                    requestType = "single_file",
+                    requestId = request.Id,
+                    filePath = request.RequestedPath
+                });
+            }
         }
 
         await _db.SaveChangesAsync();
-
-        var commands = requests.Select(x => new
-        {
-            type = "UPLOAD_FILE",
-            requestId = x.Id,
-            filePath = x.RequestedPath
-        });
 
         return Ok(commands);
     }

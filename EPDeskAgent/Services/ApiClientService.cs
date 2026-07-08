@@ -1,6 +1,5 @@
 ﻿using System.Net.Http.Json;
 using EPDeskAgent.Models;
-
 namespace EPDeskAgent.Services;
 
 public class ApiClientService
@@ -119,74 +118,96 @@ public class ApiClientService
         }
     }
 
-    public async Task<List<AgentCommand>> GetCommandsAsync()
+    public async Task<List<AgentCommand>> GetCommandsAsync(CancellationToken cancellationToken)
     {
         var deviceCode = GetDeviceCode();
 
-        try
-        {
-            var url = $"/api/agent/commands?deviceCode={Uri.EscapeDataString(deviceCode)}";
+        var response = await _httpClient.GetAsync(
+            $"/api/agent/commands?deviceCode={Uri.EscapeDataString(deviceCode)}",
+            cancellationToken
+        );
 
-            var commands = await _httpClient.GetFromJsonAsync<List<AgentCommand>>(url);
-
-            return commands ?? new List<AgentCommand>();
-        }
-        catch (Exception ex)
+        if (!response.IsSuccessStatusCode)
         {
-            _logger.LogError(ex, "Could not get commands from server.");
+            var errorBody = await response.Content.ReadAsStringAsync(cancellationToken);
+
+            _logger.LogWarning(
+                "Failed to get commands. StatusCode: {StatusCode}. Response: {Response}",
+                response.StatusCode,
+                errorBody
+            );
+
             return new List<AgentCommand>();
+        }
+
+        var commands = await response.Content.ReadFromJsonAsync<List<AgentCommand>>(
+            cancellationToken: cancellationToken
+        );
+
+        return commands ?? new List<AgentCommand>();
+    }
+
+    public async Task FailFileRequestAsync(
+    Guid requestId,
+    string errorMessage,
+    CancellationToken cancellationToken)
+    {
+        var payload = new
+        {
+            errorMessage
+        };
+
+        var response = await _httpClient.PostAsJsonAsync(
+            $"/api/agent/file-request/{requestId}/fail",
+            payload,
+            cancellationToken
+        );
+
+        if (!response.IsSuccessStatusCode)
+        {
+            var errorBody = await response.Content.ReadAsStringAsync(cancellationToken);
+
+            _logger.LogWarning(
+                "Failed to mark file request failed. StatusCode: {StatusCode}. Response: {Response}",
+                response.StatusCode,
+                errorBody
+            );
         }
     }
 
-    public async Task<bool> UploadFileAsync(Guid requestId, string filePath)
+    public async Task UploadFileAsync(
+    Guid requestId,
+    string filePath,
+    CancellationToken cancellationToken)
     {
         if (!File.Exists(filePath))
         {
-            await MarkFileRequestFailedAsync(requestId, $"File does not exist on device: {filePath}");
-            return false;
+            throw new FileNotFoundException($"File not found: {filePath}");
         }
 
-        try
+        using var form = new MultipartFormDataContent();
+
+        await using var fileStream = File.OpenRead(filePath);
+
+        var fileName = Path.GetFileName(filePath);
+
+        using var fileContent = new StreamContent(fileStream);
+
+        form.Add(fileContent, "file", fileName);
+
+        var response = await _httpClient.PostAsync(
+            $"/api/agent/file-request/{requestId}/upload",
+            form,
+            cancellationToken
+        );
+
+        if (!response.IsSuccessStatusCode)
         {
-            await using var fileStream = File.OpenRead(filePath);
+            var errorBody = await response.Content.ReadAsStringAsync(cancellationToken);
 
-            using var content = new MultipartFormDataContent();
-
-            var fileContent = new StreamContent(fileStream);
-
-            content.Add(
-                fileContent,
-                "file",
-                Path.GetFileName(filePath)
+            throw new InvalidOperationException(
+                $"File upload failed. StatusCode: {response.StatusCode}. Response: {errorBody}"
             );
-
-            var response = await _httpClient.PostAsync(
-                $"/api/agent/file-request/{requestId}/upload",
-                content
-            );
-
-            if (response.IsSuccessStatusCode)
-            {
-                _logger.LogInformation("Uploaded requested file: {FilePath}", filePath);
-                return true;
-            }
-
-            var error = await response.Content.ReadAsStringAsync();
-
-            await MarkFileRequestFailedAsync(
-                requestId,
-                $"Upload failed. Server status: {response.StatusCode}. Error: {error}"
-            );
-
-            return false;
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Could not upload requested file.");
-
-            await MarkFileRequestFailedAsync(requestId, ex.Message);
-
-            return false;
         }
     }
 

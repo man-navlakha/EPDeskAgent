@@ -1,6 +1,7 @@
 using EPDeskAgent.Database;
 using EPDeskAgent.Scanner;
 using EPDeskAgent.Services;
+using System.Net.Http.Json;
 
 namespace EPDeskAgent;
 
@@ -12,6 +13,7 @@ public class Worker : BackgroundService
     private readonly FileMetadataRepository _repository;
     private readonly ApiClientService _apiClientService;
     private readonly AutoUpdateService _autoUpdateService;
+    private readonly ZipService _zipService;
 
 
     public Worker(
@@ -20,7 +22,8 @@ public class Worker : BackgroundService
      FileScanner fileScanner,
      FileMetadataRepository repository,
      ApiClientService apiClientService,
-     AutoUpdateService autoUpdateService)
+     AutoUpdateService autoUpdateService,
+     ZipService zipService)
     {
         _logger = logger;
         _configuration = configuration;
@@ -28,6 +31,7 @@ public class Worker : BackgroundService
         _repository = repository;
         _apiClientService = apiClientService;
         _autoUpdateService = autoUpdateService;
+        _zipService = zipService;
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -141,7 +145,7 @@ public class Worker : BackgroundService
         {
             try
             {
-                await ProcessCommandsAsync();
+                await ProcessCommandsAsync(stoppingToken);
             }
             catch (Exception ex)
             {
@@ -180,29 +184,100 @@ public class Worker : BackgroundService
         }
     }
 
-    private async Task ProcessCommandsAsync()
-    {
-        var commands = await _apiClientService.GetCommandsAsync();
+    
 
-        if (commands.Count == 0)
-        {
-            _logger.LogInformation("No pending commands.");
-            return;
-        }
+    private async Task ProcessCommandsAsync(CancellationToken stoppingToken)
+    {
+        var commands = await _apiClientService.GetCommandsAsync(stoppingToken);
 
         foreach (var command in commands)
         {
-            if (command.Type == "UPLOAD_FILE")
+            try
             {
-                _logger.LogInformation(
-                    "Received upload command. RequestId: {RequestId}, File: {FilePath}",
-                    command.RequestId,
-                    command.FilePath
+                if (command.Type == "UPLOAD_FILE")
+                {
+                    if (!File.Exists(command.FilePath))
+                    {
+                        await _apiClientService.FailFileRequestAsync(
+                            command.RequestId,
+                            $"File not found: {command.FilePath}",
+                            stoppingToken
+                        );
+
+                        continue;
+                    }
+
+                    await _apiClientService.UploadFileAsync(
+                        command.RequestId,
+                        command.FilePath,
+                        stoppingToken
+                    );
+                }
+                else if (command.Type == "UPLOAD_ZIP")
+                {
+                    string zipPath;
+
+                    if (command.RequestType == "folder_zip")
+                    {
+                        zipPath = _zipService.CreateZipFromFolder(
+                            command.FolderPath,
+                            command.RequestId
+                        );
+                    }
+                    else if (command.RequestType == "multiple_files_zip")
+                    {
+                        zipPath = _zipService.CreateZipFromFiles(
+                            command.Paths,
+                            command.RequestId
+                        );
+                    }
+                    else
+                    {
+                        await _apiClientService.FailFileRequestAsync(
+                            command.RequestId,
+                            $"Unknown ZIP request type: {command.RequestType}",
+                            stoppingToken
+                        );
+
+                        continue;
+                    }
+
+                    await _apiClientService.UploadFileAsync(
+                        command.RequestId,
+                        zipPath,
+                        stoppingToken
+                    );
+
+                    try
+                    {
+                        File.Delete(zipPath);
+                    }
+                    catch
+                    {
+                        // Ignore cleanup failure
+                    }
+                }
+                else
+                {
+                    await _apiClientService.FailFileRequestAsync(
+                        command.RequestId,
+                        $"Unknown command type: {command.Type}",
+                        stoppingToken
+                    );
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(
+                    ex,
+                    "Command failed. RequestId: {RequestId}",
+                    command.RequestId
                 );
 
-                await _apiClientService.UploadFileAsync(
+                await _apiClientService.FailFileRequestAsync(
                     command.RequestId,
-                    command.FilePath
+                    ex.Message,
+                    stoppingToken
                 );
             }
         }

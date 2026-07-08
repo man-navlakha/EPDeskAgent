@@ -26,4 +26,9 @@ public class FileRequest
     public string? OriginalFileName { get; set; }
 
     public string? ErrorMessage { get; set; }
+
+    public string RequestType { get; set; } = "single_file";
+
+    public string RequestedPathsJson { get; set; } = "";
+
 }

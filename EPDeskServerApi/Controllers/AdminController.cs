@@ -1,6 +1,7 @@
 ﻿using EPDeskServerApi.Data;
 using EPDeskServerApi.Models;
 using Microsoft.AspNetCore.Mvc;
+using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 
 namespace EPDeskServerApi.Controllers;
@@ -222,6 +223,102 @@ public class AdminController : ControllerBase
         });
     }
 
+    [HttpPost("file-requests/zip-files")]
+    public async Task<IActionResult> CreateMultipleFilesZipRequest(CreateZipFilesRequestDto dto)
+    {
+        if (string.IsNullOrWhiteSpace(dto.DeviceCode))
+        {
+            return BadRequest("Device code is required.");
+        }
+
+        if (dto.RequestedPaths == null || dto.RequestedPaths.Count == 0)
+        {
+            return BadRequest("At least one file path is required.");
+        }
+
+        var cleanedPaths = dto.RequestedPaths
+            .Where(x => !string.IsNullOrWhiteSpace(x))
+            .Select(x => x.Trim())
+            .Distinct()
+            .ToList();
+
+        if (cleanedPaths.Count == 0)
+        {
+            return BadRequest("Valid file paths are required.");
+        }
+
+        if (cleanedPaths.Count > 200)
+        {
+            return BadRequest("Maximum 200 files can be requested in one ZIP.");
+        }
+
+        var request = new FileRequest
+        {
+            Id = Guid.NewGuid(),
+            DeviceCode = dto.DeviceCode.Trim().ToUpperInvariant(),
+            RequestedPath = "",
+            RequestedPathsJson = JsonSerializer.Serialize(cleanedPaths),
+            RequestedBy = dto.RequestedBy,
+            Reason = dto.Reason,
+            Status = "pending",
+            RequestType = "multiple_files_zip",
+            RequestedAtUtc = DateTime.UtcNow,
+            OriginalFileName = $"multiple-files-{DateTime.UtcNow:yyyyMMddHHmmss}.zip"
+        };
+
+        _db.FileRequests.Add(request);
+        await _db.SaveChangesAsync();
+
+        return Ok(new
+        {
+            success = true,
+            requestId = request.Id,
+            status = request.Status,
+            requestType = request.RequestType
+        });
+    }
+
+    [HttpPost("file-requests/folder-zip")]
+    public async Task<IActionResult> CreateFolderZipRequest(CreateFolderZipRequestDto dto)
+    {
+        if (string.IsNullOrWhiteSpace(dto.DeviceCode))
+        {
+            return BadRequest("Device code is required.");
+        }
+
+        if (string.IsNullOrWhiteSpace(dto.FolderPath))
+        {
+            return BadRequest("Folder path is required.");
+        }
+
+        var folderPath = dto.FolderPath.Trim();
+
+        var request = new FileRequest
+        {
+            Id = Guid.NewGuid(),
+            DeviceCode = dto.DeviceCode.Trim().ToUpperInvariant(),
+            RequestedPath = folderPath,
+            RequestedPathsJson = "",
+            RequestedBy = dto.RequestedBy,
+            Reason = dto.Reason,
+            Status = "pending",
+            RequestType = "folder_zip",
+            RequestedAtUtc = DateTime.UtcNow,
+            OriginalFileName = $"folder-{DateTime.UtcNow:yyyyMMddHHmmss}.zip"
+        };
+
+        _db.FileRequests.Add(request);
+        await _db.SaveChangesAsync();
+
+        return Ok(new
+        {
+            success = true,
+            requestId = request.Id,
+            status = request.Status,
+            requestType = request.RequestType
+        });
+    }
+
     [HttpGet("file-requests/{id:guid}/download")]
     public async Task<IActionResult> DownloadFile(Guid id)
     {
@@ -262,5 +359,27 @@ public class CreateFileRequestDto
     public string DeviceCode { get; set; } = "";
     public string RequestedPath { get; set; } = "";
     public string RequestedBy { get; set; } = "";
+    public string Reason { get; set; } = "";
+}
+
+public class CreateZipFilesRequestDto
+{
+    public string DeviceCode { get; set; } = "";
+
+    public List<string> RequestedPaths { get; set; } = new();
+
+    public string RequestedBy { get; set; } = "";
+
+    public string Reason { get; set; } = "";
+}
+
+public class CreateFolderZipRequestDto
+{
+    public string DeviceCode { get; set; } = "";
+
+    public string FolderPath { get; set; } = "";
+
+    public string RequestedBy { get; set; } = "";
+
     public string Reason { get; set; } = "";
 }

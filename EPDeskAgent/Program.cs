@@ -3,6 +3,7 @@ using EPDeskAgent.Database;
 using EPDeskAgent.Scanner;
 using EPDeskAgent.Services;
 
+
 var builder = Host.CreateApplicationBuilder(args);
 
 builder.Services.AddWindowsService(options =>
@@ -15,7 +16,7 @@ builder.Services.AddSingleton<FileMetadataRepository>();
 builder.Services.AddSingleton<FileScanner>();
 builder.Services.AddSingleton<ApiClientService>();
 builder.Services.AddSingleton<AutoUpdateService>();
-
+builder.Services.AddSingleton<ZipService>();
 builder.Services.AddHostedService<Worker>();
 
 var host = builder.Build();
