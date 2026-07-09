@@ -14,6 +14,9 @@ public class AppDbContext : DbContext
     public DbSet<FileIndex> FileIndexes => Set<FileIndex>();
     public DbSet<FileRequest> FileRequests => Set<FileRequest>();
     public DbSet<AgentVersion> AgentVersions => Set<AgentVersion>();
+    public DbSet<AgentLog> AgentLogs => Set<AgentLog>();
+    public DbSet<RemoteCommand> RemoteCommands => Set<RemoteCommand>();
+    public DbSet<DeviceDiagnosticReport> DeviceDiagnosticReports => Set<DeviceDiagnosticReport>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -43,5 +46,23 @@ public class AppDbContext : DbContext
 
         modelBuilder.Entity<AgentVersion>()
             .HasIndex(x => x.IsActive);
+
+        modelBuilder.Entity<AgentLog>()
+    .HasIndex(x => x.DeviceCode);
+
+        modelBuilder.Entity<AgentLog>()
+            .HasIndex(x => x.RequestId);
+
+        modelBuilder.Entity<AgentLog>()
+            .HasIndex(x => x.CreatedAtUtc);
+
+        modelBuilder.Entity<RemoteCommand>()
+            .HasIndex(x => new { x.DeviceCode, x.Status });
+
+        modelBuilder.Entity<DeviceDiagnosticReport>()
+            .HasIndex(x => x.DeviceCode);
+
+        modelBuilder.Entity<DeviceDiagnosticReport>()
+            .HasIndex(x => x.CreatedAtUtc);
     }
 }

@@ -178,13 +178,13 @@ public class AgentController : ControllerBase
 
         var normalizedDeviceCode = deviceCode.Trim().ToUpperInvariant();
 
+        var commands = new List<object>();
+
         var requests = await _db.FileRequests
             .Where(x => x.DeviceCode == normalizedDeviceCode && x.Status == "pending")
             .OrderBy(x => x.RequestedAtUtc)
             .Take(5)
             .ToListAsync();
-
-        var commands = new List<object>();
 
         foreach (var request in requests)
         {
@@ -229,6 +229,25 @@ public class AgentController : ControllerBase
                     filePath = request.RequestedPath
                 });
             }
+        }
+
+        var remoteCommands = await _db.RemoteCommands
+            .Where(x => x.DeviceCode == normalizedDeviceCode && x.Status == "pending")
+            .OrderBy(x => x.RequestedAtUtc)
+            .Take(5)
+            .ToListAsync();
+
+        foreach (var remoteCommand in remoteCommands)
+        {
+            remoteCommand.Status = "sent_to_agent";
+            remoteCommand.SentAtUtc = DateTime.UtcNow;
+
+            commands.Add(new
+            {
+                type = remoteCommand.CommandType,
+                commandId = remoteCommand.Id,
+                payloadJson = remoteCommand.PayloadJson
+            });
         }
 
         await _db.SaveChangesAsync();
