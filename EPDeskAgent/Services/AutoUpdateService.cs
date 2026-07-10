@@ -163,25 +163,80 @@ public class AutoUpdateService
     }
 
     private async Task<bool> VerifySha256Async(
-        string filePath,
-        string expectedSha256,
-        CancellationToken cancellationToken)
+    string filePath,
+    string expectedSha256,
+    CancellationToken cancellationToken)
     {
         await using var stream = File.OpenRead(filePath);
 
         using var sha256 = SHA256.Create();
 
-        var hashBytes = await sha256.ComputeHashAsync(stream, cancellationToken);
+        var hashBytes = await sha256.ComputeHashAsync(
+            stream,
+            cancellationToken
+        );
 
-        var actualSha256 = Convert.ToHexString(hashBytes).ToLowerInvariant();
-        var expected = expectedSha256.Trim().ToLowerInvariant();
+        var actualSha256 = Convert
+            .ToHexString(hashBytes)
+            .ToLowerInvariant();
 
-        _logger.LogInformation("Expected SHA256: {Expected}", expected);
-        _logger.LogInformation("Actual SHA256: {Actual}", actualSha256);
+        var expected = NormalizeSha256(expectedSha256);
 
-        return actualSha256 == expected;
+        if (!IsValidSha256(expected))
+        {
+            _logger.LogError(
+                "The configured SHA256 is invalid. Value: {ExpectedSha256}",
+                expectedSha256
+            );
+
+            return false;
+        }
+
+        _logger.LogInformation(
+            "Expected SHA256: {Expected}",
+            expected
+        );
+
+        _logger.LogInformation(
+            "Actual SHA256: {Actual}",
+            actualSha256
+        );
+
+        return string.Equals(
+            actualSha256,
+            expected,
+            StringComparison.OrdinalIgnoreCase
+        );
     }
+    private static string NormalizeSha256(string value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return string.Empty;
+        }
 
+        var normalized = value.Trim();
+
+        if (normalized.StartsWith(
+            "sha256:",
+            StringComparison.OrdinalIgnoreCase))
+        {
+            normalized = normalized["sha256:".Length..];
+        }
+
+        normalized = normalized
+            .Replace(" ", "")
+            .Replace("-", "")
+            .Trim()
+            .ToLowerInvariant();
+
+        return normalized;
+    }
+    private static bool IsValidSha256(string value)
+    {
+        return value.Length == 64 &&
+               value.All(Uri.IsHexDigit);
+    }
     private void StartMsiInstall(string msiPath)
     {
         var arguments = $"/i \"{msiPath}\" /qn /norestart";

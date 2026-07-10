@@ -1,5 +1,6 @@
 ﻿using System.Net.Http.Json;
 using EPDeskAgent.Models;
+using System.Reflection;
 namespace EPDeskAgent.Services;
 
 public class ApiClientService
@@ -23,6 +24,22 @@ public class ApiClientService
         {
             _httpClient.BaseAddress = new Uri(apiBaseUrl);
         }
+    }
+
+    private static string GetCurrentAgentVersion()
+    {
+        var assembly = Assembly.GetExecutingAssembly();
+
+        var informationalVersion = assembly
+            .GetCustomAttribute<AssemblyInformationalVersionAttribute>()
+            ?.InformationalVersion;
+
+        if (!string.IsNullOrWhiteSpace(informationalVersion))
+        {
+            return informationalVersion.Split('+')[0];
+        }
+
+        return assembly.GetName().Version?.ToString(3) ?? "0.0.0";
     }
     private string GetDeviceCode()
     {
@@ -109,20 +126,32 @@ public class ApiClientService
             deviceCode,
             hostname = Environment.MachineName,
             username = Environment.UserName,
-            agentVersion = "1.0.0"
+            agentVersion = GetCurrentAgentVersion()
         };
 
         try
         {
-            var response = await _httpClient.PostAsJsonAsync("/api/agent/heartbeat", request);
+            var response = await _httpClient.PostAsJsonAsync(
+                "/api/agent/heartbeat",
+                request
+            );
 
             if (response.IsSuccessStatusCode)
             {
-                _logger.LogInformation("Heartbeat sent successfully.");
+                _logger.LogInformation(
+                    "Heartbeat sent successfully. AgentVersion: {AgentVersion}",
+                    GetCurrentAgentVersion()
+                );
             }
             else
             {
-                _logger.LogWarning("Heartbeat failed: {StatusCode}", response.StatusCode);
+                var responseBody = await response.Content.ReadAsStringAsync();
+
+                _logger.LogWarning(
+                    "Heartbeat failed. StatusCode: {StatusCode}. Response: {Response}",
+                    response.StatusCode,
+                    responseBody
+                );
             }
         }
         catch (Exception ex)
