@@ -44,6 +44,18 @@ public class AgentLogsController : ControllerBase
         }).ToList();
 
         _db.AgentLogs.AddRange(logs);
+        if (dto.CommandId.HasValue)
+        {
+            var command = await _db.RemoteCommands
+                .FirstOrDefaultAsync(x => x.Id == dto.CommandId.Value);
+
+            if (command != null)
+            {
+                command.Status = "completed";
+                command.CompletedAtUtc = DateTime.UtcNow;
+                command.ErrorMessage = "";
+            }
+        }
         await _db.SaveChangesAsync();
 
         return Ok(new
@@ -152,7 +164,7 @@ public class AgentLogsController : ControllerBase
 public class UploadAgentLogsDto
 {
     public string DeviceCode { get; set; } = "";
-
+    public Guid? CommandId { get; set; }
     public List<AgentLogItemDto> Logs { get; set; } = new();
 }
 

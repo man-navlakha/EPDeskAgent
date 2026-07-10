@@ -18,6 +18,8 @@ builder.Services.AddSingleton<ApiClientService>();
 builder.Services.AddSingleton<AutoUpdateService>();
 builder.Services.AddSingleton<ZipService>();
 builder.Services.AddHostedService<Worker>();
+builder.Services.AddSingleton<LocalLogService>();
+
 
 var host = builder.Build();
 

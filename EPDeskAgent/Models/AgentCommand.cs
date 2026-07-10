@@ -8,9 +8,13 @@ public class AgentCommand
 
     public Guid RequestId { get; set; }
 
+    public Guid CommandId { get; set; }
+
     public string FilePath { get; set; } = "";
 
     public string FolderPath { get; set; } = "";
 
     public List<string> Paths { get; set; } = new();
+
+    public string PayloadJson { get; set; } = "";
 }

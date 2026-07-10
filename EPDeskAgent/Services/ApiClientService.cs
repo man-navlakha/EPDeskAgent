@@ -35,6 +35,71 @@ public class ApiClientService
 
         return deviceCode.Trim().ToUpperInvariant();
     }
+    public async Task UploadLogsAsync(
+    Guid? commandId,
+    List<AgentLogUploadItem> logs,
+    CancellationToken cancellationToken)
+    {
+        if (logs == null || logs.Count == 0)
+        {
+            return;
+        }
+
+        var payload = new UploadAgentLogsRequest
+        {
+            DeviceCode = GetDeviceCode(),
+            CommandId = commandId,
+            Logs = logs
+        };
+
+        var response = await _httpClient.PostAsJsonAsync(
+            "/api/agent/logs",
+            payload,
+            cancellationToken
+        );
+
+        if (!response.IsSuccessStatusCode)
+        {
+            var errorBody = await response.Content.ReadAsStringAsync(cancellationToken);
+
+            throw new InvalidOperationException(
+                $"Log upload failed. StatusCode: {response.StatusCode}. Response: {errorBody}"
+            );
+        }
+    }
+
+    public async Task FailRemoteCommandAsync(
+        Guid commandId,
+        string errorMessage,
+        CancellationToken cancellationToken)
+    {
+        if (commandId == Guid.Empty)
+        {
+            return;
+        }
+
+        var payload = new
+        {
+            errorMessage
+        };
+
+        var response = await _httpClient.PostAsJsonAsync(
+            $"/api/agent/remote-command/{commandId}/fail",
+            payload,
+            cancellationToken
+        );
+
+        if (!response.IsSuccessStatusCode)
+        {
+            var errorBody = await response.Content.ReadAsStringAsync(cancellationToken);
+
+            _logger.LogWarning(
+                "Failed to mark remote command failed. StatusCode: {StatusCode}. Response: {Response}",
+                response.StatusCode,
+                errorBody
+            );
+        }
+    }
     public async Task SendHeartbeatAsync()
     {
         var deviceCode = GetDeviceCode();
