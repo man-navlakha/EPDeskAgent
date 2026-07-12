@@ -18,28 +18,105 @@ public class AdminController : ControllerBase
     }
 
     [HttpGet("devices")]
-    public async Task<IActionResult> GetDevices()
+    public async Task<IActionResult> GetDevices([FromQuery] string? updateStatus = null)
     {
         var now = DateTime.UtcNow;
+        var latestVersion = await GetLatestAgentVersionAsync();
 
-        var devices = await _db.Devices
+        var deviceRows = await _db.Devices
             .OrderBy(x => x.DeviceCode)
             .Select(x => new
             {
                 x.DeviceCode,
                 x.Nickname,
-                DisplayName = x.Nickname == "" ? x.DeviceCode : x.Nickname,
                 x.Hostname,
                 x.Username,
-                Status = x.LastSeenAtUtc != null &&
-                         x.LastSeenAtUtc > now.AddMinutes(-2)
-                    ? "online"
-                    : "offline",
+                x.AgentVersion,
                 x.LastSeenAtUtc
             })
             .ToListAsync();
 
+        var devices = deviceRows
+            .Select(x =>
+            {
+                var deviceUpdateStatus = GetUpdateStatus(latestVersion, x.AgentVersion);
+
+                return new
+                {
+                    x.DeviceCode,
+                    x.Nickname,
+                    DisplayName = x.Nickname == "" ? x.DeviceCode : x.Nickname,
+                    x.Hostname,
+                    x.Username,
+                    x.AgentVersion,
+                    LatestVersion = latestVersion,
+                    UpdateStatus = deviceUpdateStatus,
+                    UpdateAvailable = deviceUpdateStatus == "outdated",
+                    Status = x.LastSeenAtUtc != null &&
+                             x.LastSeenAtUtc > now.AddMinutes(-2)
+                        ? "online"
+                        : "offline",
+                    x.LastSeenAtUtc
+                };
+            })
+            .ToList();
+
+        if (!string.IsNullOrWhiteSpace(updateStatus))
+        {
+            var normalizedUpdateStatus = updateStatus.Trim().ToLowerInvariant();
+
+            devices = devices
+                .Where(x => x.UpdateStatus == normalizedUpdateStatus)
+                .ToList();
+        }
+
         return Ok(devices);
+    }
+
+    [HttpGet("devices/version-summary")]
+    public async Task<IActionResult> GetDeviceVersionSummary()
+    {
+        var now = DateTime.UtcNow;
+        var latestVersion = await GetLatestAgentVersionAsync();
+
+        var deviceRows = await _db.Devices
+            .Select(x => new
+            {
+                x.AgentVersion,
+                x.LastSeenAtUtc
+            })
+            .ToListAsync();
+
+        var updateStatuses = deviceRows
+            .Select(x => GetUpdateStatus(latestVersion, x.AgentVersion))
+            .ToList();
+
+        var versionGroups = deviceRows
+            .GroupBy(x => string.IsNullOrWhiteSpace(x.AgentVersion)
+                ? "unknown"
+                : x.AgentVersion.Trim())
+            .Select(x => new
+            {
+                version = x.Key,
+                count = x.Count()
+            })
+            .OrderByDescending(x => x.count)
+            .ThenBy(x => x.version)
+            .ToList();
+
+        return Ok(new
+        {
+            latestVersion,
+            totalDevices = deviceRows.Count,
+            onlineDevices = deviceRows.Count(x =>
+                x.LastSeenAtUtc != null &&
+                x.LastSeenAtUtc > now.AddMinutes(-2)),
+            latestDevices = updateStatuses.Count(x => x == "latest"),
+            outdatedDevices = updateStatuses.Count(x => x == "outdated"),
+            unknownVersionDevices = updateStatuses.Count(x => x == "unknown"),
+            newerThanLatestDevices = updateStatuses.Count(x => x == "newer"),
+            versionGroups
+        });
     }
 
     [HttpPatch("devices/{deviceCode}/nickname")]
@@ -396,6 +473,37 @@ public class AdminController : ControllerBase
             "application/octet-stream",
             downloadFileName
         );
+    }
+
+    private async Task<string> GetLatestAgentVersionAsync()
+    {
+        return await _db.AgentVersions
+            .Where(x => x.IsActive)
+            .OrderByDescending(x => x.CreatedAtUtc)
+            .Select(x => x.Version)
+            .FirstOrDefaultAsync() ?? "";
+    }
+
+    private static string GetUpdateStatus(string latestVersion, string currentVersion)
+    {
+        if (string.IsNullOrWhiteSpace(latestVersion) ||
+            string.IsNullOrWhiteSpace(currentVersion))
+        {
+            return "unknown";
+        }
+
+        if (!Version.TryParse(latestVersion.Trim(), out var latest) ||
+            !Version.TryParse(currentVersion.Trim(), out var current))
+        {
+            return "unknown";
+        }
+
+        if (current == latest)
+        {
+            return "latest";
+        }
+
+        return current < latest ? "outdated" : "newer";
     }
 }
 
