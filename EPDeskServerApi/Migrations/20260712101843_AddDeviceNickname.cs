@@ -11,147 +11,91 @@ namespace EPDeskServerApi.Migrations
         /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
         {
-            migrationBuilder.AddColumn<string>(
-                name: "RequestType",
-                table: "FileRequests",
-                type: "text",
-                nullable: false,
-                defaultValue: "");
+            migrationBuilder.Sql("""
+                ALTER TABLE "FileRequests"
+                    ADD COLUMN IF NOT EXISTS "RequestType" text NOT NULL DEFAULT '';
 
-            migrationBuilder.AddColumn<string>(
-                name: "RequestedPathsJson",
-                table: "FileRequests",
-                type: "text",
-                nullable: false,
-                defaultValue: "");
+                ALTER TABLE "FileRequests"
+                    ADD COLUMN IF NOT EXISTS "RequestedPathsJson" text NOT NULL DEFAULT '';
 
-            migrationBuilder.AddColumn<string>(
-                name: "Nickname",
-                table: "Devices",
-                type: "text",
-                nullable: false,
-                defaultValue: "");
+                ALTER TABLE "Devices"
+                    ADD COLUMN IF NOT EXISTS "Nickname" text NOT NULL DEFAULT '';
 
-            migrationBuilder.CreateTable(
-                name: "AgentLogs",
-                columns: table => new
-                {
-                    Id = table.Column<Guid>(type: "uuid", nullable: false),
-                    DeviceCode = table.Column<string>(type: "text", nullable: false),
-                    RequestId = table.Column<Guid>(type: "uuid", nullable: true),
-                    Level = table.Column<string>(type: "text", nullable: false),
-                    Category = table.Column<string>(type: "text", nullable: false),
-                    Message = table.Column<string>(type: "text", nullable: false),
-                    Step = table.Column<string>(type: "text", nullable: false),
-                    DetailsJson = table.Column<string>(type: "text", nullable: false),
-                    CreatedAtUtc = table.Column<DateTime>(type: "timestamp with time zone", nullable: false)
-                },
-                constraints: table =>
-                {
-                    table.PrimaryKey("PK_AgentLogs", x => x.Id);
-                });
+                CREATE TABLE IF NOT EXISTS "AgentLogs" (
+                    "Id" uuid NOT NULL,
+                    "DeviceCode" text NOT NULL,
+                    "RequestId" uuid NULL,
+                    "Level" text NOT NULL,
+                    "Category" text NOT NULL,
+                    "Message" text NOT NULL,
+                    "Step" text NOT NULL,
+                    "DetailsJson" text NOT NULL,
+                    "CreatedAtUtc" timestamp with time zone NOT NULL,
+                    CONSTRAINT "PK_AgentLogs" PRIMARY KEY ("Id")
+                );
 
-            migrationBuilder.CreateTable(
-                name: "DeviceDiagnosticReports",
-                columns: table => new
-                {
-                    Id = table.Column<Guid>(type: "uuid", nullable: false),
-                    DeviceCode = table.Column<string>(type: "text", nullable: false),
-                    CommandId = table.Column<Guid>(type: "uuid", nullable: true),
-                    AgentVersion = table.Column<string>(type: "text", nullable: false),
-                    ServiceStatus = table.Column<string>(type: "text", nullable: false),
-                    WindowsVersion = table.Column<string>(type: "text", nullable: false),
-                    ServiceAccount = table.Column<string>(type: "text", nullable: false),
-                    InternetWorking = table.Column<bool>(type: "boolean", nullable: false),
-                    ApiReachable = table.Column<bool>(type: "boolean", nullable: false),
-                    SystemDriveFreeBytes = table.Column<long>(type: "bigint", nullable: false),
-                    CurrentRunningTask = table.Column<string>(type: "text", nullable: false),
-                    LastFileRequest = table.Column<string>(type: "text", nullable: false),
-                    LastError = table.Column<string>(type: "text", nullable: false),
-                    LastHeartbeatUtc = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
-                    PendingRequestsCount = table.Column<int>(type: "integer", nullable: false),
-                    DetailsJson = table.Column<string>(type: "text", nullable: false),
-                    CreatedAtUtc = table.Column<DateTime>(type: "timestamp with time zone", nullable: false)
-                },
-                constraints: table =>
-                {
-                    table.PrimaryKey("PK_DeviceDiagnosticReports", x => x.Id);
-                });
+                CREATE TABLE IF NOT EXISTS "DeviceDiagnosticReports" (
+                    "Id" uuid NOT NULL,
+                    "DeviceCode" text NOT NULL,
+                    "CommandId" uuid NULL,
+                    "AgentVersion" text NOT NULL,
+                    "ServiceStatus" text NOT NULL,
+                    "WindowsVersion" text NOT NULL,
+                    "ServiceAccount" text NOT NULL,
+                    "InternetWorking" boolean NOT NULL,
+                    "ApiReachable" boolean NOT NULL,
+                    "SystemDriveFreeBytes" bigint NOT NULL,
+                    "CurrentRunningTask" text NOT NULL,
+                    "LastFileRequest" text NOT NULL,
+                    "LastError" text NOT NULL,
+                    "LastHeartbeatUtc" timestamp with time zone NULL,
+                    "PendingRequestsCount" integer NOT NULL,
+                    "DetailsJson" text NOT NULL,
+                    "CreatedAtUtc" timestamp with time zone NOT NULL,
+                    CONSTRAINT "PK_DeviceDiagnosticReports" PRIMARY KEY ("Id")
+                );
 
-            migrationBuilder.CreateTable(
-                name: "RemoteCommands",
-                columns: table => new
-                {
-                    Id = table.Column<Guid>(type: "uuid", nullable: false),
-                    DeviceCode = table.Column<string>(type: "text", nullable: false),
-                    CommandType = table.Column<string>(type: "text", nullable: false),
-                    PayloadJson = table.Column<string>(type: "text", nullable: false),
-                    Status = table.Column<string>(type: "text", nullable: false),
-                    RequestedBy = table.Column<string>(type: "text", nullable: false),
-                    RequestedAtUtc = table.Column<DateTime>(type: "timestamp with time zone", nullable: false),
-                    SentAtUtc = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
-                    CompletedAtUtc = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
-                    ErrorMessage = table.Column<string>(type: "text", nullable: false)
-                },
-                constraints: table =>
-                {
-                    table.PrimaryKey("PK_RemoteCommands", x => x.Id);
-                });
+                CREATE TABLE IF NOT EXISTS "RemoteCommands" (
+                    "Id" uuid NOT NULL,
+                    "DeviceCode" text NOT NULL,
+                    "CommandType" text NOT NULL,
+                    "PayloadJson" text NOT NULL,
+                    "Status" text NOT NULL,
+                    "RequestedBy" text NOT NULL,
+                    "RequestedAtUtc" timestamp with time zone NOT NULL,
+                    "SentAtUtc" timestamp with time zone NULL,
+                    "CompletedAtUtc" timestamp with time zone NULL,
+                    "ErrorMessage" text NOT NULL,
+                    CONSTRAINT "PK_RemoteCommands" PRIMARY KEY ("Id")
+                );
 
-            migrationBuilder.CreateIndex(
-                name: "IX_AgentLogs_CreatedAtUtc",
-                table: "AgentLogs",
-                column: "CreatedAtUtc");
+                CREATE INDEX IF NOT EXISTS "IX_AgentLogs_CreatedAtUtc"
+                    ON "AgentLogs" ("CreatedAtUtc");
 
-            migrationBuilder.CreateIndex(
-                name: "IX_AgentLogs_DeviceCode",
-                table: "AgentLogs",
-                column: "DeviceCode");
+                CREATE INDEX IF NOT EXISTS "IX_AgentLogs_DeviceCode"
+                    ON "AgentLogs" ("DeviceCode");
 
-            migrationBuilder.CreateIndex(
-                name: "IX_AgentLogs_RequestId",
-                table: "AgentLogs",
-                column: "RequestId");
+                CREATE INDEX IF NOT EXISTS "IX_AgentLogs_RequestId"
+                    ON "AgentLogs" ("RequestId");
 
-            migrationBuilder.CreateIndex(
-                name: "IX_DeviceDiagnosticReports_CreatedAtUtc",
-                table: "DeviceDiagnosticReports",
-                column: "CreatedAtUtc");
+                CREATE INDEX IF NOT EXISTS "IX_DeviceDiagnosticReports_CreatedAtUtc"
+                    ON "DeviceDiagnosticReports" ("CreatedAtUtc");
 
-            migrationBuilder.CreateIndex(
-                name: "IX_DeviceDiagnosticReports_DeviceCode",
-                table: "DeviceDiagnosticReports",
-                column: "DeviceCode");
+                CREATE INDEX IF NOT EXISTS "IX_DeviceDiagnosticReports_DeviceCode"
+                    ON "DeviceDiagnosticReports" ("DeviceCode");
 
-            migrationBuilder.CreateIndex(
-                name: "IX_RemoteCommands_DeviceCode_Status",
-                table: "RemoteCommands",
-                columns: new[] { "DeviceCode", "Status" });
+                CREATE INDEX IF NOT EXISTS "IX_RemoteCommands_DeviceCode_Status"
+                    ON "RemoteCommands" ("DeviceCode", "Status");
+                """);
         }
 
         /// <inheritdoc />
         protected override void Down(MigrationBuilder migrationBuilder)
         {
-            migrationBuilder.DropTable(
-                name: "AgentLogs");
-
-            migrationBuilder.DropTable(
-                name: "DeviceDiagnosticReports");
-
-            migrationBuilder.DropTable(
-                name: "RemoteCommands");
-
-            migrationBuilder.DropColumn(
-                name: "RequestType",
-                table: "FileRequests");
-
-            migrationBuilder.DropColumn(
-                name: "RequestedPathsJson",
-                table: "FileRequests");
-
-            migrationBuilder.DropColumn(
-                name: "Nickname",
-                table: "Devices");
+            migrationBuilder.Sql("""
+                ALTER TABLE "Devices"
+                    DROP COLUMN IF EXISTS "Nickname";
+                """);
         }
     }
 }
