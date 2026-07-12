@@ -27,6 +27,8 @@ public class AdminController : ControllerBase
             .Select(x => new
             {
                 x.DeviceCode,
+                x.Nickname,
+                DisplayName = x.Nickname == "" ? x.DeviceCode : x.Nickname,
                 x.Hostname,
                 x.Username,
                 Status = x.LastSeenAtUtc != null &&
@@ -38,6 +40,49 @@ public class AdminController : ControllerBase
             .ToListAsync();
 
         return Ok(devices);
+    }
+
+    [HttpPatch("devices/{deviceCode}/nickname")]
+    public async Task<IActionResult> UpdateDeviceNickname(
+        string deviceCode,
+        UpdateDeviceNicknameDto dto)
+    {
+        if (string.IsNullOrWhiteSpace(deviceCode))
+        {
+            return BadRequest("Device code is required.");
+        }
+
+        if (dto == null)
+        {
+            return BadRequest("Request body is required.");
+        }
+
+        var normalizedDeviceCode = deviceCode.Trim().ToUpperInvariant();
+        var nickname = dto.Nickname?.Trim() ?? "";
+
+        if (nickname.Length > 100)
+        {
+            return BadRequest("Nickname cannot be longer than 100 characters.");
+        }
+
+        var device = await _db.Devices
+            .FirstOrDefaultAsync(x => x.DeviceCode.ToUpper() == normalizedDeviceCode);
+
+        if (device == null)
+        {
+            return NotFound("Device not found.");
+        }
+
+        device.Nickname = nickname;
+        await _db.SaveChangesAsync();
+
+        return Ok(new
+        {
+            success = true,
+            device.DeviceCode,
+            device.Nickname,
+            DisplayName = device.Nickname == "" ? device.DeviceCode : device.Nickname
+        });
     }
 
     [HttpGet("files/search")]
@@ -360,6 +405,11 @@ public class CreateFileRequestDto
     public string RequestedPath { get; set; } = "";
     public string RequestedBy { get; set; } = "";
     public string Reason { get; set; } = "";
+}
+
+public class UpdateDeviceNicknameDto
+{
+    public string? Nickname { get; set; }
 }
 
 public class CreateZipFilesRequestDto
