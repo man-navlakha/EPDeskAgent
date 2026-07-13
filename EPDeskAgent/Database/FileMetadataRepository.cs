@@ -13,9 +13,25 @@ public class FileMetadataRepository
         _database = database;
     }
 
-    public async Task UpsertFileAsync(FileMetadata file)
+    public async Task UpsertFileAsync(
+        FileMetadata file,
+        CancellationToken cancellationToken = default)
     {
-        using var connection = new SqliteConnection(_database.ConnectionString);
+        await UpsertFilesAsync([file], cancellationToken);
+    }
+
+    public async Task UpsertFilesAsync(
+        IReadOnlyCollection<FileMetadata> files,
+        CancellationToken cancellationToken = default)
+    {
+        if (files.Count == 0)
+        {
+            return;
+        }
+
+        await using var connection = new SqliteConnection(_database.ConnectionString);
+        await connection.OpenAsync(cancellationToken);
+        using var transaction = connection.BeginTransaction();
 
         var sql =
         """
@@ -46,6 +62,7 @@ public class FileMetadataRepository
             'pending'
         )
         ON CONFLICT(full_path) DO UPDATE SET
+            device_code = excluded.device_code,
             directory_path = excluded.directory_path,
             file_name = excluded.file_name,
             extension = excluded.extension,
@@ -54,10 +71,30 @@ public class FileMetadataRepository
             updated_at_utc = excluded.updated_at_utc,
             last_seen_at_utc = excluded.last_seen_at_utc,
             is_deleted = 0,
-            sync_status = 'pending';
+            sync_status = CASE
+                WHEN files.device_code IS NOT excluded.device_code
+                  OR files.directory_path IS NOT excluded.directory_path
+                  OR files.file_name IS NOT excluded.file_name
+                  OR files.extension IS NOT excluded.extension
+                  OR files.size_bytes IS NOT excluded.size_bytes
+                  OR files.created_at_utc IS NOT excluded.created_at_utc
+                  OR files.updated_at_utc IS NOT excluded.updated_at_utc
+                  OR files.is_deleted IS NOT 0
+                THEN 'pending'
+                ELSE files.sync_status
+            END;
         """;
 
-        await connection.ExecuteAsync(sql, file);
+        try
+        {
+            await connection.ExecuteAsync(sql, files, transaction);
+            transaction.Commit();
+        }
+        catch
+        {
+            transaction.Rollback();
+            throw;
+        }
     }
 
     public async Task<List<FileMetadata>> GetPendingFilesAsync(int limit)

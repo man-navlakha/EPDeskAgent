@@ -11,6 +11,10 @@ public class AgentController : ControllerBase
 {
     private readonly AppDbContext _db;
 
+    private const string FolderPathExclusionType = "folder_path";
+    private const string FolderNameExclusionType = "folder_name";
+    private const string FileExtensionExclusionType = "file_extension";
+
     public AgentController(AppDbContext db)
     {
         _db = db;
@@ -146,6 +150,46 @@ public class AgentController : ControllerBase
                 stack = ex.StackTrace
             });
         }
+    }
+
+    [HttpGet("scan-exclusions")]
+    public async Task<IActionResult> GetScanExclusions([FromQuery] string deviceCode)
+    {
+        if (string.IsNullOrWhiteSpace(deviceCode))
+        {
+            return BadRequest("Device code is required.");
+        }
+
+        var normalizedDeviceCode = deviceCode.Trim().ToUpperInvariant();
+
+        var exclusions = await _db.DeviceScanExclusions
+            .Where(x =>
+                x.DeviceCode == normalizedDeviceCode &&
+                x.IsActive)
+            .OrderBy(x => x.ExclusionType)
+            .ThenBy(x => x.Value)
+            .Select(x => new
+            {
+                x.ExclusionType,
+                x.Value
+            })
+            .ToListAsync();
+
+        return Ok(new AgentScanExclusionsResponse
+        {
+            ExcludedFolders = exclusions
+                .Where(x => x.ExclusionType == FolderPathExclusionType)
+                .Select(x => x.Value)
+                .ToList(),
+            ExcludedFolderNames = exclusions
+                .Where(x => x.ExclusionType == FolderNameExclusionType)
+                .Select(x => x.Value)
+                .ToList(),
+            ExcludedFileExtensions = exclusions
+                .Where(x => x.ExclusionType == FileExtensionExclusionType)
+                .Select(x => x.Value)
+                .ToList()
+        });
     }
 
     private static DateTime ForceUtc(DateTime value)
@@ -351,6 +395,15 @@ public class FileSyncItem
     public DateTime CreatedAtUtc { get; set; }
     public DateTime UpdatedAtUtc { get; set; }
     public bool IsDeleted { get; set; }
+}
+
+public class AgentScanExclusionsResponse
+{
+    public List<string> ExcludedFolders { get; set; } = new();
+
+    public List<string> ExcludedFolderNames { get; set; } = new();
+
+    public List<string> ExcludedFileExtensions { get; set; } = new();
 }
 
 public class FailFileRequestDto

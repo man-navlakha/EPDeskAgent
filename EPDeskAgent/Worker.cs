@@ -2,6 +2,7 @@ using EPDeskAgent.Database;
 using EPDeskAgent.Scanner;
 using EPDeskAgent.Services;
 using EPDeskAgent.Models;
+using System.Diagnostics;
 using System.Text.Json;
 
 namespace EPDeskAgent;
@@ -39,6 +40,8 @@ public class Worker : BackgroundService
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
+        ConfigureProcessPriority();
+
         _logger.LogInformation("EPDesk Agent started.");
 
         _localLogService.Info(
@@ -145,6 +148,24 @@ public class Worker : BackgroundService
             scanIntervalMinutes = 360;
         }
 
+        var initialScanDelayMinutes = _configuration.GetValue<int>("Agent:InitialScanDelayMinutes");
+
+        if (initialScanDelayMinutes > 0)
+        {
+            _logger.LogInformation(
+                "Waiting {Minutes} minutes before first file scan.",
+                initialScanDelayMinutes
+            );
+
+            _localLogService.Info(
+                "agent",
+                $"Waiting {initialScanDelayMinutes} minutes before first file scan.",
+                step: "initial_scan_delay"
+            );
+
+            await Task.Delay(TimeSpan.FromMinutes(initialScanDelayMinutes), stoppingToken);
+        }
+
         while (!stoppingToken.IsCancellationRequested)
         {
             try
@@ -157,7 +178,16 @@ public class Worker : BackgroundService
                     step: "scan_started"
                 );
 
-                await _fileScanner.ScanAsync();
+                var scanExclusions = await _apiClientService
+                    .GetScanExclusionsAsync(stoppingToken);
+
+                _localLogService.Info(
+                    "agent",
+                    $"Server scan exclusions loaded. FolderPaths: {scanExclusions.ExcludedFolders.Count}. FolderNames: {scanExclusions.ExcludedFolderNames.Count}. FileExtensions: {scanExclusions.ExcludedFileExtensions.Count}.",
+                    step: "scan_exclusions_loaded"
+                );
+
+                await _fileScanner.ScanAsync(scanExclusions, stoppingToken);
 
                 var totalFiles = await _repository.CountFilesAsync();
                 var pendingFiles = await _repository.CountPendingFilesAsync();
@@ -174,7 +204,7 @@ public class Worker : BackgroundService
                     step: "scan_completed"
                 );
 
-                await SyncPendingFilesAsync();
+                await SyncPendingFilesAsync(stoppingToken);
             }
             catch (Exception ex)
             {
@@ -223,11 +253,17 @@ public class Worker : BackgroundService
         }
     }
 
-    private async Task SyncPendingFilesAsync()
+    private async Task SyncPendingFilesAsync(CancellationToken stoppingToken)
     {
-        const int batchSize = 100;
+        var batchSize = _configuration.GetValue<int>("Agent:MetadataSyncBatchSize");
+        if (batchSize <= 0)
+        {
+            batchSize = 100;
+        }
 
-        while (true)
+        var pauseMilliseconds = _configuration.GetValue<int>("Agent:MetadataSyncPauseMilliseconds");
+
+        while (!stoppingToken.IsCancellationRequested)
         {
             var files = await _repository.GetPendingFilesAsync(batchSize);
 
@@ -274,6 +310,33 @@ public class Worker : BackgroundService
                 $"File metadata sync completed. Count: {files.Count}.",
                 step: "metadata_sync_completed"
             );
+
+            if (pauseMilliseconds > 0)
+            {
+                await Task.Delay(pauseMilliseconds, stoppingToken);
+            }
+        }
+    }
+
+    private void ConfigureProcessPriority()
+    {
+        var runBelowNormalPriority = _configuration.GetValue<bool>("Agent:RunBelowNormalPriority");
+
+        if (!runBelowNormalPriority)
+        {
+            return;
+        }
+
+        try
+        {
+            using var currentProcess = Process.GetCurrentProcess();
+            currentProcess.PriorityClass = ProcessPriorityClass.BelowNormal;
+
+            _logger.LogInformation("Agent process priority set to below normal.");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Could not set Agent process priority.");
         }
     }
 

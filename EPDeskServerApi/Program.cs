@@ -2,8 +2,26 @@ using EPDeskServerApi.Data;
 using Microsoft.EntityFrameworkCore;
 using EPDeskServerApi.Configuration;
 using EPDeskServerApi.Services.Storage;
+using Microsoft.AspNetCore.Http.Features;
 
 var builder = WebApplication.CreateBuilder(args);
+
+const long defaultMaxUploadBytes = 2L * 1024 * 1024 * 1024;
+
+var maxUploadBytes = builder.Configuration.GetValue<long?>(
+    "UploadLimits:MaxRequestBodySizeBytes"
+) ?? defaultMaxUploadBytes;
+
+builder.WebHost.ConfigureKestrel(options =>
+{
+    options.Limits.MaxRequestBodySize = maxUploadBytes;
+});
+
+builder.Services.Configure<FormOptions>(options =>
+{
+    options.MultipartBodyLengthLimit = maxUploadBytes;
+});
+
 builder.Services.Configure<B2StorageOptions>(
     builder.Configuration.GetSection(B2StorageOptions.SectionName)
 );

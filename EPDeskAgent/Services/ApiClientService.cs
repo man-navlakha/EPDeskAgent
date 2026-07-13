@@ -5,6 +5,9 @@ namespace EPDeskAgent.Services;
 
 public class ApiClientService
 {
+    private static readonly TimeSpan DefaultRequestTimeout = TimeSpan.FromSeconds(100);
+    private static readonly TimeSpan DefaultUploadTimeout = TimeSpan.FromMinutes(30);
+
     private readonly IConfiguration _configuration;
     private readonly HttpClient _httpClient;
     private readonly ILogger<ApiClientService> _logger;
@@ -16,7 +19,10 @@ public class ApiClientService
         _configuration = configuration;
         _logger = logger;
 
-        _httpClient = new HttpClient();
+        _httpClient = new HttpClient
+        {
+            Timeout = Timeout.InfiniteTimeSpan
+        };
 
         var apiBaseUrl = _configuration["Agent:ApiBaseUrl"] ?? "";
 
@@ -24,6 +30,43 @@ public class ApiClientService
         {
             _httpClient.BaseAddress = new Uri(apiBaseUrl);
         }
+    }
+
+    private TimeSpan GetRequestTimeout()
+    {
+        var seconds = _configuration.GetValue<int>("Agent:HttpRequestTimeoutSeconds");
+
+        if (seconds <= 0)
+        {
+            return DefaultRequestTimeout;
+        }
+
+        return TimeSpan.FromSeconds(seconds);
+    }
+
+    private TimeSpan GetUploadTimeout()
+    {
+        var minutes = _configuration.GetValue<int>("Agent:FileUploadTimeoutMinutes");
+
+        if (minutes <= 0)
+        {
+            return DefaultUploadTimeout;
+        }
+
+        return TimeSpan.FromMinutes(minutes);
+    }
+
+    private CancellationTokenSource CreateTimeoutTokenSource(
+        TimeSpan timeout,
+        CancellationToken cancellationToken = default)
+    {
+        var timeoutTokenSource = CancellationTokenSource.CreateLinkedTokenSource(
+            cancellationToken
+        );
+
+        timeoutTokenSource.CancelAfter(timeout);
+
+        return timeoutTokenSource;
     }
 
     private static string GetCurrentAgentVersion()
@@ -52,6 +95,52 @@ public class ApiClientService
 
         return deviceCode.Trim().ToUpperInvariant();
     }
+
+    public async Task<ScanExclusionsResponse> GetScanExclusionsAsync(
+        CancellationToken cancellationToken)
+    {
+        var deviceCode = GetDeviceCode();
+
+        try
+        {
+            using var timeoutTokenSource = CreateTimeoutTokenSource(
+                GetRequestTimeout(),
+                cancellationToken
+            );
+
+            var response = await _httpClient.GetAsync(
+                $"/api/agent/scan-exclusions?deviceCode={Uri.EscapeDataString(deviceCode)}",
+                timeoutTokenSource.Token
+            );
+
+            if (!response.IsSuccessStatusCode)
+            {
+                var errorBody = await response.Content.ReadAsStringAsync(
+                    timeoutTokenSource.Token
+                );
+
+                _logger.LogWarning(
+                    "Failed to get scan exclusions. StatusCode: {StatusCode}. Response: {Response}",
+                    response.StatusCode,
+                    errorBody
+                );
+
+                return new ScanExclusionsResponse();
+            }
+
+            var scanExclusions =
+                await response.Content.ReadFromJsonAsync<ScanExclusionsResponse>(
+                    cancellationToken: timeoutTokenSource.Token
+                );
+
+            return scanExclusions ?? new ScanExclusionsResponse();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Could not get scan exclusions from server.");
+            return new ScanExclusionsResponse();
+        }
+    }
     public async Task UploadLogsAsync(
     Guid? commandId,
     List<AgentLogUploadItem> logs,
@@ -69,15 +158,22 @@ public class ApiClientService
             Logs = logs
         };
 
+        using var timeoutTokenSource = CreateTimeoutTokenSource(
+            GetRequestTimeout(),
+            cancellationToken
+        );
+
         var response = await _httpClient.PostAsJsonAsync(
             "/api/agent/logs",
             payload,
-            cancellationToken
+            timeoutTokenSource.Token
         );
 
         if (!response.IsSuccessStatusCode)
         {
-            var errorBody = await response.Content.ReadAsStringAsync(cancellationToken);
+            var errorBody = await response.Content.ReadAsStringAsync(
+                timeoutTokenSource.Token
+            );
 
             throw new InvalidOperationException(
                 $"Log upload failed. StatusCode: {response.StatusCode}. Response: {errorBody}"
@@ -100,15 +196,22 @@ public class ApiClientService
             errorMessage
         };
 
+        using var timeoutTokenSource = CreateTimeoutTokenSource(
+            GetRequestTimeout(),
+            cancellationToken
+        );
+
         var response = await _httpClient.PostAsJsonAsync(
             $"/api/agent/remote-command/{commandId}/fail",
             payload,
-            cancellationToken
+            timeoutTokenSource.Token
         );
 
         if (!response.IsSuccessStatusCode)
         {
-            var errorBody = await response.Content.ReadAsStringAsync(cancellationToken);
+            var errorBody = await response.Content.ReadAsStringAsync(
+                timeoutTokenSource.Token
+            );
 
             _logger.LogWarning(
                 "Failed to mark remote command failed. StatusCode: {StatusCode}. Response: {Response}",
@@ -131,9 +234,14 @@ public class ApiClientService
 
         try
         {
+            using var timeoutTokenSource = CreateTimeoutTokenSource(
+                GetRequestTimeout()
+            );
+
             var response = await _httpClient.PostAsJsonAsync(
                 "/api/agent/heartbeat",
-                request
+                request,
+                timeoutTokenSource.Token
             );
 
             if (response.IsSuccessStatusCode)
@@ -145,7 +253,9 @@ public class ApiClientService
             }
             else
             {
-                var responseBody = await response.Content.ReadAsStringAsync();
+                var responseBody = await response.Content.ReadAsStringAsync(
+                    timeoutTokenSource.Token
+                );
 
                 _logger.LogWarning(
                     "Heartbeat failed. StatusCode: {StatusCode}. Response: {Response}",
@@ -187,7 +297,15 @@ public class ApiClientService
 
         try
         {
-            var response = await _httpClient.PostAsJsonAsync("/api/agent/files/batch", request);
+            using var timeoutTokenSource = CreateTimeoutTokenSource(
+                GetRequestTimeout()
+            );
+
+            var response = await _httpClient.PostAsJsonAsync(
+                "/api/agent/files/batch",
+                request,
+                timeoutTokenSource.Token
+            );
 
             if (response.IsSuccessStatusCode)
             {
@@ -195,7 +313,9 @@ public class ApiClientService
                 return true;
             }
 
-            var errorBody = await response.Content.ReadAsStringAsync();
+            var errorBody = await response.Content.ReadAsStringAsync(
+                timeoutTokenSource.Token
+            );
 
             _logger.LogWarning(
                 "File sync failed: {StatusCode}. Server response: {ErrorBody}",
@@ -216,14 +336,21 @@ public class ApiClientService
     {
         var deviceCode = GetDeviceCode();
 
+        using var timeoutTokenSource = CreateTimeoutTokenSource(
+            GetRequestTimeout(),
+            cancellationToken
+        );
+
         var response = await _httpClient.GetAsync(
             $"/api/agent/commands?deviceCode={Uri.EscapeDataString(deviceCode)}",
-            cancellationToken
+            timeoutTokenSource.Token
         );
 
         if (!response.IsSuccessStatusCode)
         {
-            var errorBody = await response.Content.ReadAsStringAsync(cancellationToken);
+            var errorBody = await response.Content.ReadAsStringAsync(
+                timeoutTokenSource.Token
+            );
 
             _logger.LogWarning(
                 "Failed to get commands. StatusCode: {StatusCode}. Response: {Response}",
@@ -235,7 +362,7 @@ public class ApiClientService
         }
 
         var commands = await response.Content.ReadFromJsonAsync<List<AgentCommand>>(
-            cancellationToken: cancellationToken
+            cancellationToken: timeoutTokenSource.Token
         );
 
         return commands ?? new List<AgentCommand>();
@@ -251,15 +378,22 @@ public class ApiClientService
             errorMessage
         };
 
+        using var timeoutTokenSource = CreateTimeoutTokenSource(
+            GetRequestTimeout(),
+            cancellationToken
+        );
+
         var response = await _httpClient.PostAsJsonAsync(
             $"/api/agent/file-request/{requestId}/fail",
             payload,
-            cancellationToken
+            timeoutTokenSource.Token
         );
 
         if (!response.IsSuccessStatusCode)
         {
-            var errorBody = await response.Content.ReadAsStringAsync(cancellationToken);
+            var errorBody = await response.Content.ReadAsStringAsync(
+                timeoutTokenSource.Token
+            );
 
             _logger.LogWarning(
                 "Failed to mark file request failed. StatusCode: {StatusCode}. Response: {Response}",
@@ -289,15 +423,38 @@ public class ApiClientService
 
         form.Add(fileContent, "file", fileName);
 
-        var response = await _httpClient.PostAsync(
-            $"/api/agent/file-request/{requestId}/upload",
-            form,
+        var uploadTimeout = GetUploadTimeout();
+
+        using var timeoutTokenSource = CreateTimeoutTokenSource(
+            uploadTimeout,
             cancellationToken
         );
 
+        HttpResponseMessage response;
+
+        try
+        {
+            response = await _httpClient.PostAsync(
+                $"/api/agent/file-request/{requestId}/upload",
+                form,
+                timeoutTokenSource.Token
+            );
+        }
+        catch (OperationCanceledException exception)
+            when (!cancellationToken.IsCancellationRequested &&
+                  timeoutTokenSource.IsCancellationRequested)
+        {
+            throw new TimeoutException(
+                $"File upload timed out after {uploadTimeout.TotalMinutes:0.#} minutes. File: {fileName}",
+                exception
+            );
+        }
+
         if (!response.IsSuccessStatusCode)
         {
-            var errorBody = await response.Content.ReadAsStringAsync(cancellationToken);
+            var errorBody = await response.Content.ReadAsStringAsync(
+                timeoutTokenSource.Token
+            );
 
             throw new InvalidOperationException(
                 $"File upload failed. StatusCode: {response.StatusCode}. Response: {errorBody}"
@@ -314,9 +471,14 @@ public class ApiClientService
                 errorMessage
             };
 
+            using var timeoutTokenSource = CreateTimeoutTokenSource(
+                GetRequestTimeout()
+            );
+
             await _httpClient.PostAsJsonAsync(
                 $"/api/agent/file-request/{requestId}/fail",
-                request
+                request,
+                timeoutTokenSource.Token
             );
         }
         catch (Exception ex)

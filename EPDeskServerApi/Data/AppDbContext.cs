@@ -17,6 +17,7 @@ public class AppDbContext : DbContext
     public DbSet<AgentLog> AgentLogs => Set<AgentLog>();
     public DbSet<RemoteCommand> RemoteCommands => Set<RemoteCommand>();
     public DbSet<DeviceDiagnosticReport> DeviceDiagnosticReports => Set<DeviceDiagnosticReport>();
+    public DbSet<DeviceScanExclusion> DeviceScanExclusions => Set<DeviceScanExclusion>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -64,5 +65,11 @@ public class AppDbContext : DbContext
 
         modelBuilder.Entity<DeviceDiagnosticReport>()
             .HasIndex(x => x.CreatedAtUtc);
+
+        modelBuilder.Entity<DeviceScanExclusion>()
+            .HasIndex(x => new { x.DeviceCode, x.IsActive });
+
+        modelBuilder.Entity<DeviceScanExclusion>()
+            .HasIndex(x => new { x.DeviceCode, x.ExclusionType, x.Value });
     }
 }

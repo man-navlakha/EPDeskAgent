@@ -19,7 +19,14 @@ public class FileScanner
         _logger = logger;
     }
 
-    public async Task ScanAsync()
+    public Task ScanAsync(CancellationToken cancellationToken = default)
+    {
+        return ScanAsync(null, cancellationToken);
+    }
+
+    public async Task ScanAsync(
+        ScanExclusionsResponse? serverExclusions,
+        CancellationToken cancellationToken = default)
     {
         var deviceCode = _configuration["Agent:DeviceCode"];
 
@@ -32,17 +39,42 @@ public class FileScanner
 
         var scanFolders = GetScanFolders();
 
-        var excludedFolders = _configuration
+        var configuredExcludedFolders = _configuration
             .GetSection("Agent:ExcludedFolders")
             .Get<string[]>() ?? [];
 
-        var excludedFolderNames = _configuration
+        var configuredExcludedFolderNames = _configuration
             .GetSection("Agent:ExcludedFolderNames")
             .Get<string[]>() ?? [];
 
-        var excludedFileExtensions = _configuration
+        var configuredExcludedFileExtensions = _configuration
             .GetSection("Agent:ExcludedFileExtensions")
             .Get<string[]>() ?? [];
+
+        var excludedFolders = MergeExclusions(
+            configuredExcludedFolders,
+            serverExclusions?.ExcludedFolders
+        );
+
+        var excludedFolderNames = MergeExclusions(
+            configuredExcludedFolderNames,
+            serverExclusions?.ExcludedFolderNames
+        );
+
+        var excludedFileExtensions = MergeExclusions(
+            configuredExcludedFileExtensions,
+            serverExclusions?.ExcludedFileExtensions,
+            normalizeFileExtensions: true
+        );
+
+        var scanBatchSize = _configuration.GetValue<int>("Agent:FileScanBatchSize");
+        if (scanBatchSize <= 0)
+        {
+            scanBatchSize = 500;
+        }
+
+        var pauseEveryFiles = _configuration.GetValue<int>("Agent:FileScanPauseEveryFiles");
+        var pauseMilliseconds = _configuration.GetValue<int>("Agent:FileScanPauseMilliseconds");
 
         var options = new ScanFilterOptions
         {
@@ -56,6 +88,8 @@ public class FileScanner
 
         foreach (var folder in scanFolders)
         {
+            cancellationToken.ThrowIfCancellationRequested();
+
             if (!Directory.Exists(folder))
             {
                 _logger.LogWarning("Scan folder does not exist: {Folder}", folder);
@@ -70,7 +104,11 @@ public class FileScanner
                 excludedFolders,
                 excludedFolderNames,
                 excludedFileExtensions,
-                options
+                options,
+                scanBatchSize,
+                pauseEveryFiles,
+                pauseMilliseconds,
+                cancellationToken
             );
 
             _logger.LogInformation("Finished scanning {Folder}. Files scanned: {Count}", folder, count);
@@ -105,21 +143,75 @@ public class FileScanner
             .Get<string[]>() ?? [];
     }
 
+    private static string[] MergeExclusions(
+        IEnumerable<string> configuredValues,
+        IEnumerable<string>? serverValues,
+        bool normalizeFileExtensions = false)
+    {
+        var values = new List<string>();
+
+        values.AddRange(configuredValues);
+
+        if (serverValues != null)
+        {
+            values.AddRange(serverValues);
+        }
+
+        return values
+            .Select(value => NormalizeExclusionValue(value, normalizeFileExtensions))
+            .Where(value => !string.IsNullOrWhiteSpace(value))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+    }
+
+    private static string NormalizeExclusionValue(
+        string value,
+        bool normalizeFileExtension)
+    {
+        var normalizedValue = value.Trim();
+
+        if (normalizedValue == "")
+        {
+            return "";
+        }
+
+        if (!normalizeFileExtension)
+        {
+            return normalizedValue.TrimEnd(
+                Path.DirectorySeparatorChar,
+                Path.AltDirectorySeparatorChar
+            );
+        }
+
+        normalizedValue = normalizedValue.TrimStart('.');
+
+        return normalizedValue == ""
+            ? ""
+            : "." + normalizedValue.ToLowerInvariant();
+    }
+
     private async Task<int> ScanFolderAsync(
         string deviceCode,
         string rootFolder,
         string[] excludedFolders,
         string[] excludedFolderNames,
         string[] excludedFileExtensions,
-        ScanFilterOptions options)
+        ScanFilterOptions options,
+        int scanBatchSize,
+        int pauseEveryFiles,
+        int pauseMilliseconds,
+        CancellationToken cancellationToken)
     {
         var count = 0;
         var foldersToScan = new Stack<string>();
+        var pendingFiles = new List<FileMetadata>(scanBatchSize);
 
         foldersToScan.Push(rootFolder);
 
         while (foldersToScan.Count > 0)
         {
+            cancellationToken.ThrowIfCancellationRequested();
+
             var currentFolder = foldersToScan.Pop();
 
             if (IsDirectoryExcluded(
@@ -144,6 +236,8 @@ public class FileScanner
 
             foreach (var subFolder in subFolders)
             {
+                cancellationToken.ThrowIfCancellationRequested();
+
                 if (!IsDirectoryExcluded(
                         subFolder,
                         excludedFolders,
@@ -167,6 +261,8 @@ public class FileScanner
 
             foreach (var filePath in files)
             {
+                cancellationToken.ThrowIfCancellationRequested();
+
                 if (IsFileExcluded(
                         filePath,
                         excludedFileExtensions,
@@ -201,15 +297,33 @@ public class FileScanner
                     SyncStatus = "pending"
                 };
 
-                await _repository.UpsertFileAsync(metadata);
+                pendingFiles.Add(metadata);
 
                 count++;
+
+                if (pendingFiles.Count >= scanBatchSize)
+                {
+                    await _repository.UpsertFilesAsync(pendingFiles, cancellationToken);
+                    pendingFiles.Clear();
+                }
 
                 if (count % 1000 == 0)
                 {
                     _logger.LogInformation("Scanned {Count} files...", count);
                 }
+
+                if (pauseEveryFiles > 0 &&
+                    pauseMilliseconds > 0 &&
+                    count % pauseEveryFiles == 0)
+                {
+                    await Task.Delay(pauseMilliseconds, cancellationToken);
+                }
             }
+        }
+
+        if (pendingFiles.Count > 0)
+        {
+            await _repository.UpsertFilesAsync(pendingFiles, cancellationToken);
         }
 
         return count;
@@ -237,9 +351,7 @@ public class FileScanner
                 continue;
             }
 
-            if (folderPath.StartsWith(
-                    excludedFolder,
-                    StringComparison.OrdinalIgnoreCase))
+            if (IsFolderPathExcluded(folderPath, folderName, excludedFolder))
             {
                 return true;
             }
@@ -282,6 +394,66 @@ public class FileScanner
         }
 
         return false;
+    }
+
+    private static bool IsFolderPathExcluded(
+        string folderPath,
+        string folderName,
+        string excludedFolder)
+    {
+        excludedFolder = excludedFolder.Trim();
+
+        if (excludedFolder == "")
+        {
+            return false;
+        }
+
+        if (IsSimpleFolderName(excludedFolder))
+        {
+            return folderName.Equals(
+                excludedFolder,
+                StringComparison.OrdinalIgnoreCase
+            );
+        }
+
+        var normalizedFolderPath = NormalizeFolderPath(folderPath);
+        var normalizedExcludedFolder = NormalizeFolderPath(excludedFolder);
+
+        if (normalizedExcludedFolder == "")
+        {
+            return false;
+        }
+
+        if (normalizedFolderPath.Equals(
+                normalizedExcludedFolder,
+                StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        return normalizedFolderPath.StartsWith(
+                   normalizedExcludedFolder + Path.DirectorySeparatorChar,
+                   StringComparison.OrdinalIgnoreCase) ||
+               normalizedFolderPath.StartsWith(
+                   normalizedExcludedFolder + Path.AltDirectorySeparatorChar,
+                   StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool IsSimpleFolderName(string value)
+    {
+        return !Path.IsPathRooted(value) &&
+               !value.Contains(Path.DirectorySeparatorChar) &&
+               !value.Contains(Path.AltDirectorySeparatorChar);
+    }
+
+    private static string NormalizeFolderPath(string folderPath)
+    {
+        return folderPath
+            .Trim()
+            .TrimEnd(
+                Path.DirectorySeparatorChar,
+                Path.AltDirectorySeparatorChar
+            );
     }
 
     private static bool IsFileExcluded(
