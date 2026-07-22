@@ -285,4 +285,26 @@ public class FileMetadataRepository
             }
         );
     }
+
+    public async Task MarkFileMissingAsync(long id)
+    {
+        using var connection = new SqliteConnection(_database.ConnectionString);
+
+        await connection.ExecuteAsync(
+            """
+            UPDATE files
+            SET is_deleted = 1,
+                sync_status = 'pending',
+                upload_status = 'missing',
+                upload_error = '',
+                last_upload_attempt_at_utc = @AttemptedAtUtc
+            WHERE id = @Id;
+            """,
+            new
+            {
+                Id = id,
+                AttemptedAtUtc = DateTime.UtcNow
+            }
+        );
+    }
 }

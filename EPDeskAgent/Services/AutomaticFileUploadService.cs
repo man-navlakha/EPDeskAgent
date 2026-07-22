@@ -68,6 +68,18 @@ public sealed class AutomaticFileUploadService
         long afterId = 0;
         var completedCount = 0;
         var failedCount = 0;
+        var skippedCount = 0;
+        var consecutiveFailures = 0;
+        var stopUploadPass = false;
+
+        var failureThreshold = _configuration.GetValue<int>(
+            "Agent:AutomaticUploadFailureThreshold"
+        );
+
+        if (failureThreshold <= 0)
+        {
+            failureThreshold = 3;
+        }
 
         while (!cancellationToken.IsCancellationRequested)
         {
@@ -87,31 +99,55 @@ public sealed class AutomaticFileUploadService
                 cancellationToken.ThrowIfCancellationRequested();
                 afterId = file.Id;
 
-                var success = await UploadOneFileAsync(
+                var result = await UploadOneFileAsync(
                     file,
                     policy.MaxFileSizeBytes,
                     cancellationToken
                 );
 
-                if (success)
+                if (result == AutomaticUploadResult.Uploaded)
                 {
                     completedCount++;
+                    consecutiveFailures = 0;
+                }
+                else if (result == AutomaticUploadResult.Failed)
+                {
+                    failedCount++;
+                    consecutiveFailures++;
+
+                    if (consecutiveFailures >= failureThreshold)
+                    {
+                        stopUploadPass = true;
+
+                        _localLogService.Warning(
+                            "upload",
+                            $"Automatic upload pass stopped after {consecutiveFailures} consecutive failures. It will retry during the next scheduled pass.",
+                            step: "automatic_upload_circuit_open"
+                        );
+
+                        break;
+                    }
                 }
                 else
                 {
-                    failedCount++;
+                    skippedCount++;
                 }
+            }
+
+            if (stopUploadPass)
+            {
+                break;
             }
         }
 
         _localLogService.Info(
             "upload",
-            $"Automatic Backblaze upload pass completed. Uploaded: {completedCount}. Failed: {failedCount}.",
+            $"Automatic Backblaze upload pass completed. Uploaded: {completedCount}. Skipped: {skippedCount}. Failed: {failedCount}.",
             step: "automatic_upload_pass_completed"
         );
     }
 
-    private async Task<bool> UploadOneFileAsync(
+    private async Task<AutomaticUploadResult> UploadOneFileAsync(
         FileMetadata file,
         long maxFileSizeBytes,
         CancellationToken cancellationToken)
@@ -163,7 +199,7 @@ public sealed class AutomaticFileUploadService
                     file.FullPath
                 );
 
-                return false;
+                return AutomaticUploadResult.Skipped;
             }
 
             await _repository.MarkAutomaticUploadStartedAsync(file.Id);
@@ -178,7 +214,7 @@ public sealed class AutomaticFileUploadService
             if (!upload.ShouldUpload)
             {
                 await _repository.MarkAutomaticUploadCompletedAsync(file);
-                return true;
+                return AutomaticUploadResult.Uploaded;
             }
 
             var uploadedPartNumbers = upload.UploadedPartNumbers.ToHashSet();
@@ -222,7 +258,25 @@ public sealed class AutomaticFileUploadService
                 step: "automatic_upload_completed"
             );
 
-            return true;
+            return AutomaticUploadResult.Uploaded;
+        }
+        catch (Exception exception) when (
+            exception is FileNotFoundException or DirectoryNotFoundException)
+        {
+            await _repository.MarkFileMissingAsync(file.Id);
+
+            _logger.LogInformation(
+                "Skipping automatic upload because the local file is missing: {FilePath}",
+                file.FullPath
+            );
+
+            _localLogService.Warning(
+                "upload",
+                $"Local file is missing and was removed from the automatic upload queue: {file.FullPath}",
+                step: "automatic_upload_file_missing"
+            );
+
+            return AutomaticUploadResult.Skipped;
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
@@ -250,7 +304,7 @@ public sealed class AutomaticFileUploadService
                 step: "automatic_upload_failed"
             );
 
-            return false;
+            return AutomaticUploadResult.Failed;
         }
     }
 
@@ -303,5 +357,12 @@ public sealed class AutomaticFileUploadService
     {
         value = value.Trim().TrimStart('.');
         return value.Length == 0 ? "" : "." + value.ToLowerInvariant();
+    }
+
+    private enum AutomaticUploadResult
+    {
+        Uploaded,
+        Skipped,
+        Failed
     }
 }
