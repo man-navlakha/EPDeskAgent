@@ -17,6 +17,7 @@ public class Worker : BackgroundService
     private readonly AutoUpdateService _autoUpdateService;
     private readonly ZipService _zipService;
     private readonly LocalLogService _localLogService;
+    private readonly AutomaticFileUploadService _automaticFileUploadService;
 
     public Worker(
         ILogger<Worker> logger,
@@ -26,7 +27,8 @@ public class Worker : BackgroundService
         ApiClientService apiClientService,
         AutoUpdateService autoUpdateService,
         ZipService zipService,
-        LocalLogService localLogService)
+        LocalLogService localLogService,
+        AutomaticFileUploadService automaticFileUploadService)
     {
         _logger = logger;
         _configuration = configuration;
@@ -36,6 +38,7 @@ public class Worker : BackgroundService
         _autoUpdateService = autoUpdateService;
         _zipService = zipService;
         _localLogService = localLogService;
+        _automaticFileUploadService = automaticFileUploadService;
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -54,13 +57,50 @@ public class Worker : BackgroundService
         var scanTask = RunScanLoopAsync(stoppingToken);
         var commandTask = RunCommandLoopAsync(stoppingToken);
         var updateTask = RunUpdateLoopAsync(stoppingToken);
+        var automaticUploadTask = RunAutomaticUploadLoopAsync(stoppingToken);
 
         await Task.WhenAll(
             heartbeatTask,
             scanTask,
             commandTask,
-            updateTask
+            updateTask,
+            automaticUploadTask
         );
+    }
+
+    private async Task RunAutomaticUploadLoopAsync(CancellationToken stoppingToken)
+    {
+        var intervalMinutes = _configuration.GetValue<int>(
+            "Agent:AutomaticUploadIntervalMinutes"
+        );
+
+        if (intervalMinutes <= 0)
+        {
+            intervalMinutes = 10;
+        }
+
+        await Task.Delay(TimeSpan.FromMinutes(1), stoppingToken);
+
+        while (!stoppingToken.IsCancellationRequested)
+        {
+            try
+            {
+                await _automaticFileUploadService.UploadChangedFilesAsync(stoppingToken);
+            }
+            catch (Exception exception)
+            {
+                _logger.LogError(exception, "Automatic Backblaze upload loop error.");
+
+                _localLogService.Error(
+                    "upload",
+                    "Automatic Backblaze upload loop error.",
+                    exception,
+                    step: "automatic_upload_loop_failed"
+                );
+            }
+
+            await Task.Delay(TimeSpan.FromMinutes(intervalMinutes), stoppingToken);
+        }
     }
 
     private async Task RunUpdateLoopAsync(CancellationToken stoppingToken)
@@ -205,6 +245,8 @@ public class Worker : BackgroundService
                 );
 
                 await SyncPendingFilesAsync(stoppingToken);
+
+                await _automaticFileUploadService.UploadChangedFilesAsync(stoppingToken);
             }
             catch (Exception ex)
             {

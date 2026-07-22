@@ -163,4 +163,126 @@ public class FileMetadataRepository
             "SELECT COUNT(*) FROM files WHERE sync_status = 'pending';"
         );
     }
+
+    public async Task<List<FileMetadata>> GetFilesPendingAutomaticUploadAsync(
+        IReadOnlyCollection<string> extensions,
+        long afterId,
+        int limit)
+    {
+        if (extensions.Count == 0)
+        {
+            return [];
+        }
+
+        using var connection = new SqliteConnection(_database.ConnectionString);
+
+        const string sql =
+        """
+        SELECT
+            id AS Id,
+            device_code AS DeviceCode,
+            full_path AS FullPath,
+            directory_path AS DirectoryPath,
+            file_name AS FileName,
+            extension AS Extension,
+            size_bytes AS SizeBytes,
+            created_at_utc AS CreatedAtUtc,
+            updated_at_utc AS UpdatedAtUtc,
+            last_seen_at_utc AS LastSeenAtUtc,
+            is_deleted AS IsDeleted,
+            sync_status AS SyncStatus,
+            uploaded_size_bytes AS UploadedSizeBytes,
+            uploaded_updated_at_utc AS UploadedUpdatedAtUtc,
+            upload_status AS UploadStatus,
+            upload_error AS UploadError,
+            last_upload_attempt_at_utc AS LastUploadAttemptAtUtc
+        FROM files
+        WHERE id > @AfterId
+          AND is_deleted = 0
+          AND lower(extension) IN @Extensions
+          AND (
+              uploaded_size_bytes IS NULL
+              OR uploaded_updated_at_utc IS NULL
+              OR uploaded_size_bytes != size_bytes
+              OR uploaded_updated_at_utc != updated_at_utc
+          )
+        ORDER BY id
+        LIMIT @Limit;
+        """;
+
+        var files = await connection.QueryAsync<FileMetadata>(
+            sql,
+            new
+            {
+                AfterId = afterId,
+                Extensions = extensions.Select(x => x.ToLowerInvariant()).ToArray(),
+                Limit = limit
+            }
+        );
+
+        return files.ToList();
+    }
+
+    public async Task MarkAutomaticUploadStartedAsync(long id)
+    {
+        using var connection = new SqliteConnection(_database.ConnectionString);
+
+        await connection.ExecuteAsync(
+            """
+            UPDATE files
+            SET upload_status = 'uploading',
+                upload_error = '',
+                last_upload_attempt_at_utc = @AttemptedAtUtc
+            WHERE id = @Id;
+            """,
+            new { Id = id, AttemptedAtUtc = DateTime.UtcNow }
+        );
+    }
+
+    public async Task MarkAutomaticUploadCompletedAsync(FileMetadata file)
+    {
+        using var connection = new SqliteConnection(_database.ConnectionString);
+
+        await connection.ExecuteAsync(
+            """
+            UPDATE files
+            SET uploaded_size_bytes = @SizeBytes,
+                uploaded_updated_at_utc = @UpdatedAtUtc,
+                upload_status = 'completed',
+                upload_error = '',
+                last_upload_attempt_at_utc = @AttemptedAtUtc
+            WHERE id = @Id
+              AND size_bytes = @SizeBytes
+              AND updated_at_utc = @UpdatedAtUtc;
+            """,
+            new
+            {
+                file.Id,
+                file.SizeBytes,
+                file.UpdatedAtUtc,
+                AttemptedAtUtc = DateTime.UtcNow
+            }
+        );
+    }
+
+    public async Task MarkAutomaticUploadFailedAsync(long id, string errorMessage)
+    {
+        using var connection = new SqliteConnection(_database.ConnectionString);
+
+        await connection.ExecuteAsync(
+            """
+            UPDATE files
+            SET upload_status = 'failed',
+                upload_error = @ErrorMessage,
+                last_upload_attempt_at_utc = @AttemptedAtUtc
+            WHERE id = @Id;
+            """,
+            new
+            {
+                Id = id,
+                ErrorMessage = errorMessage,
+                AttemptedAtUtc = DateTime.UtcNow
+            }
+        );
+    }
 }

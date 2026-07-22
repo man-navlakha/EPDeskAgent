@@ -24,12 +24,26 @@ public class ApiClientService
             Timeout = Timeout.InfiniteTimeSpan
         };
 
-        var apiBaseUrl = _configuration["Agent:ApiBaseUrl"] ?? "";
+        var apiBaseUrl = _configuration["Agent:ApiBaseUrl"];
 
-        if (!string.IsNullOrWhiteSpace(apiBaseUrl))
+        if (string.IsNullOrWhiteSpace(apiBaseUrl))
         {
-            _httpClient.BaseAddress = new Uri(apiBaseUrl);
+            throw new InvalidOperationException(
+                "Agent:ApiBaseUrl is missing. Configure it in the appsettings.json file beside EPDeskAgent.exe."
+            );
         }
+
+        if (!Uri.TryCreate(apiBaseUrl.Trim(), UriKind.Absolute, out var baseAddress) ||
+            (baseAddress.Scheme != Uri.UriSchemeHttp &&
+             baseAddress.Scheme != Uri.UriSchemeHttps))
+        {
+            throw new InvalidOperationException(
+                "Agent:ApiBaseUrl must be an absolute HTTP or HTTPS URL. " +
+                $"Configured value: '{apiBaseUrl}'."
+            );
+        }
+
+        _httpClient.BaseAddress = baseAddress;
     }
 
     private TimeSpan GetRequestTimeout()
@@ -485,5 +499,172 @@ public class ApiClientService
         {
             _logger.LogError(ex, "Could not mark file request as failed.");
         }
+    }
+
+    public async Task<AutomaticFileUploadPolicyResponse> GetAutomaticFileUploadPolicyAsync(
+        CancellationToken cancellationToken)
+    {
+        using var timeoutTokenSource = CreateTimeoutTokenSource(
+            GetRequestTimeout(),
+            cancellationToken
+        );
+
+        var response = await _httpClient.GetAsync(
+            "/api/agent/file-uploads/policy",
+            timeoutTokenSource.Token
+        );
+
+        await EnsureSuccessAsync(response, timeoutTokenSource.Token);
+
+        return await response.Content.ReadFromJsonAsync<AutomaticFileUploadPolicyResponse>(
+            cancellationToken: timeoutTokenSource.Token
+        ) ?? throw new InvalidOperationException("File upload policy response was empty.");
+    }
+
+    public async Task<InitiateAutomaticFileUploadResponse> InitiateAutomaticFileUploadAsync(
+        FileMetadata file,
+        CancellationToken cancellationToken)
+    {
+        var request = new InitiateAutomaticFileUploadRequest
+        {
+            DeviceCode = GetDeviceCode(),
+            FullPath = file.FullPath,
+            FileName = file.FileName,
+            Extension = file.Extension,
+            SizeBytes = file.SizeBytes,
+            LastModifiedAtUtc = file.UpdatedAtUtc
+        };
+
+        using var timeoutTokenSource = CreateTimeoutTokenSource(
+            GetRequestTimeout(),
+            cancellationToken
+        );
+
+        var response = await _httpClient.PostAsJsonAsync(
+            "/api/agent/file-uploads/initiate",
+            request,
+            timeoutTokenSource.Token
+        );
+
+        await EnsureSuccessAsync(response, timeoutTokenSource.Token);
+
+        return await response.Content.ReadFromJsonAsync<InitiateAutomaticFileUploadResponse>(
+            cancellationToken: timeoutTokenSource.Token
+        ) ?? throw new InvalidOperationException("Initiate upload response was empty.");
+    }
+
+    public async Task<AutomaticFileUploadPartUrlResponse> GetAutomaticUploadPartUrlAsync(
+        Guid uploadId,
+        int partNumber,
+        CancellationToken cancellationToken)
+    {
+        using var timeoutTokenSource = CreateTimeoutTokenSource(
+            GetRequestTimeout(),
+            cancellationToken
+        );
+
+        var response = await _httpClient.PostAsync(
+            $"/api/agent/file-uploads/{uploadId}/parts/{partNumber}/url",
+            null,
+            timeoutTokenSource.Token
+        );
+
+        await EnsureSuccessAsync(response, timeoutTokenSource.Token);
+
+        return await response.Content.ReadFromJsonAsync<AutomaticFileUploadPartUrlResponse>(
+            cancellationToken: timeoutTokenSource.Token
+        ) ?? throw new InvalidOperationException("Part upload URL response was empty.");
+    }
+
+    public async Task UploadAutomaticFilePartAsync(
+        string filePath,
+        AutomaticFileUploadPartUrlResponse part,
+        CancellationToken cancellationToken)
+    {
+        var fileStream = new FileStream(
+            filePath,
+            FileMode.Open,
+            FileAccess.Read,
+            FileShare.ReadWrite,
+            bufferSize: 81920,
+            useAsync: true
+        );
+
+        fileStream.Seek(part.OffsetBytes, SeekOrigin.Begin);
+
+        using var limitedStream = new LimitedReadStream(fileStream, part.LengthBytes);
+        using var content = new StreamContent(limitedStream);
+        content.Headers.ContentLength = part.LengthBytes;
+
+        using var timeoutTokenSource = CreateTimeoutTokenSource(
+            GetUploadTimeout(),
+            cancellationToken
+        );
+
+        var response = await _httpClient.PutAsync(
+            part.UploadUrl,
+            content,
+            timeoutTokenSource.Token
+        );
+
+        await EnsureSuccessAsync(response, timeoutTokenSource.Token);
+    }
+
+    public async Task CompleteAutomaticFileUploadAsync(
+        Guid uploadId,
+        CancellationToken cancellationToken)
+    {
+        using var timeoutTokenSource = CreateTimeoutTokenSource(
+            GetRequestTimeout(),
+            cancellationToken
+        );
+
+        var response = await _httpClient.PostAsync(
+            $"/api/agent/file-uploads/{uploadId}/complete",
+            null,
+            timeoutTokenSource.Token
+        );
+
+        await EnsureSuccessAsync(response, timeoutTokenSource.Token);
+    }
+
+    public async Task ReportAutomaticFileUploadFailureAsync(
+        Guid uploadId,
+        string errorMessage,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            using var timeoutTokenSource = CreateTimeoutTokenSource(
+                GetRequestTimeout(),
+                cancellationToken
+            );
+
+            await _httpClient.PostAsJsonAsync(
+                $"/api/agent/file-uploads/{uploadId}/failure",
+                new { errorMessage },
+                timeoutTokenSource.Token
+            );
+        }
+        catch (Exception exception)
+        {
+            _logger.LogWarning(exception, "Could not report automatic upload failure.");
+        }
+    }
+
+    private static async Task EnsureSuccessAsync(
+        HttpResponseMessage response,
+        CancellationToken cancellationToken)
+    {
+        if (response.IsSuccessStatusCode)
+        {
+            return;
+        }
+
+        var body = await response.Content.ReadAsStringAsync(cancellationToken);
+
+        throw new InvalidOperationException(
+            $"API request failed. StatusCode: {response.StatusCode}. Response: {body}"
+        );
     }
 }

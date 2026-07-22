@@ -2,6 +2,7 @@ using EPDeskServerApi.Data;
 using Microsoft.EntityFrameworkCore;
 using EPDeskServerApi.Configuration;
 using EPDeskServerApi.Services.Storage;
+using EPDeskServerApi.Services;
 using Microsoft.AspNetCore.Http.Features;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -30,6 +31,7 @@ builder.Services.AddSingleton<
     IObjectStorageService,
     B2ObjectStorageService
 >();
+builder.Services.AddScoped<FileUploadPolicyService>();
 
 var port = Environment.GetEnvironmentVariable("PORT") ?? "8080";
 builder.WebHost.UseUrls($"http://0.0.0.0:{port}");

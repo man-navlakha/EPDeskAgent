@@ -4,7 +4,14 @@ using EPDeskAgent.Scanner;
 using EPDeskAgent.Services;
 
 
-var builder = Host.CreateApplicationBuilder(args);
+// Windows services and manually launched published executables can have a
+// working directory that is different from the executable directory. Always
+// load appsettings.json from beside EPDeskAgent.exe.
+var builder = Host.CreateApplicationBuilder(new HostApplicationBuilderSettings
+{
+    Args = args,
+    ContentRootPath = AppContext.BaseDirectory
+});
 
 builder.Services.AddWindowsService(options =>
 {
@@ -19,6 +26,7 @@ builder.Services.AddSingleton<AutoUpdateService>();
 builder.Services.AddSingleton<ZipService>();
 builder.Services.AddHostedService<Worker>();
 builder.Services.AddSingleton<LocalLogService>();
+builder.Services.AddSingleton<AutomaticFileUploadService>();
 
 
 var host = builder.Build();

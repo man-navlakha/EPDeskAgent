@@ -43,6 +43,11 @@ namespace EPDeskAgent.Database
             last_seen_at_utc TEXT,
             is_deleted INTEGER DEFAULT 0,
             sync_status TEXT DEFAULT 'pending'
+            ,uploaded_size_bytes INTEGER NULL
+            ,uploaded_updated_at_utc TEXT NULL
+            ,upload_status TEXT DEFAULT 'pending'
+            ,upload_error TEXT DEFAULT ''
+            ,last_upload_attempt_at_utc TEXT NULL
         );
 
         CREATE INDEX IF NOT EXISTS idx_files_name ON files(file_name);
@@ -51,6 +56,54 @@ namespace EPDeskAgent.Database
         """;
 
             command.ExecuteNonQuery();
+
+            EnsureColumn(connection, "files", "uploaded_size_bytes", "INTEGER NULL");
+            EnsureColumn(connection, "files", "uploaded_updated_at_utc", "TEXT NULL");
+            EnsureColumn(connection, "files", "upload_status", "TEXT DEFAULT 'pending'");
+            EnsureColumn(connection, "files", "upload_error", "TEXT DEFAULT ''");
+            EnsureColumn(connection, "files", "last_upload_attempt_at_utc", "TEXT NULL");
+
+            using var indexCommand = connection.CreateCommand();
+            indexCommand.CommandText =
+                "CREATE INDEX IF NOT EXISTS idx_files_upload_status ON files(upload_status);";
+            indexCommand.ExecuteNonQuery();
+        }
+
+        private static void EnsureColumn(
+            SqliteConnection connection,
+            string tableName,
+            string columnName,
+            string definition)
+        {
+            using var schemaCommand = connection.CreateCommand();
+            schemaCommand.CommandText = $"PRAGMA table_info({tableName});";
+
+            using var reader = schemaCommand.ExecuteReader();
+            var exists = false;
+
+            while (reader.Read())
+            {
+                if (string.Equals(
+                        reader.GetString(1),
+                        columnName,
+                        StringComparison.OrdinalIgnoreCase))
+                {
+                    exists = true;
+                    break;
+                }
+            }
+
+            reader.Close();
+
+            if (exists)
+            {
+                return;
+            }
+
+            using var alterCommand = connection.CreateCommand();
+            alterCommand.CommandText =
+                $"ALTER TABLE {tableName} ADD COLUMN {columnName} {definition};";
+            alterCommand.ExecuteNonQuery();
         }
     }
 }

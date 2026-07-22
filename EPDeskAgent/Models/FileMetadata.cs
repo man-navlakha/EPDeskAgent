@@ -14,5 +14,10 @@
         public DateTime LastSeenAtUtc { get; set; }
         public bool IsDeleted { get; set; }
         public string SyncStatus { get; set; } = "pending";
+        public long? UploadedSizeBytes { get; set; }
+        public DateTime? UploadedUpdatedAtUtc { get; set; }
+        public string UploadStatus { get; set; } = "pending";
+        public string UploadError { get; set; } = "";
+        public DateTime? LastUploadAttemptAtUtc { get; set; }
     }
 }

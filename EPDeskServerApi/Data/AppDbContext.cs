@@ -18,6 +18,8 @@ public class AppDbContext : DbContext
     public DbSet<RemoteCommand> RemoteCommands => Set<RemoteCommand>();
     public DbSet<DeviceDiagnosticReport> DeviceDiagnosticReports => Set<DeviceDiagnosticReport>();
     public DbSet<DeviceScanExclusion> DeviceScanExclusions => Set<DeviceScanExclusion>();
+    public DbSet<AutomaticFileUpload> AutomaticFileUploads => Set<AutomaticFileUpload>();
+    public DbSet<FileUploadPolicy> FileUploadPolicies => Set<FileUploadPolicy>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -71,5 +73,15 @@ public class AppDbContext : DbContext
 
         modelBuilder.Entity<DeviceScanExclusion>()
             .HasIndex(x => new { x.DeviceCode, x.ExclusionType, x.Value });
+
+        modelBuilder.Entity<AutomaticFileUpload>()
+            .HasIndex(x => new { x.DeviceCode, x.PathIdentity })
+            .IsUnique();
+
+        modelBuilder.Entity<AutomaticFileUpload>()
+            .HasIndex(x => x.Status);
+
+        modelBuilder.Entity<AutomaticFileUpload>()
+            .HasIndex(x => x.UpdatedAtUtc);
     }
 }
