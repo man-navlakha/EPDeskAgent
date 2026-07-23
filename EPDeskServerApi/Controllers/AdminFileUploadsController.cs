@@ -110,4 +110,54 @@ public sealed class AdminFileUploadsController : ControllerBase
             expiresAtUtc = DateTime.UtcNow.Add(validFor)
         });
     }
+
+    [HttpDelete("{id:guid}")]
+    public async Task<IActionResult> DeleteUpload(
+        Guid id,
+        CancellationToken cancellationToken)
+    {
+        var upload = await _db.AutomaticFileUploads
+            .FirstOrDefaultAsync(x => x.Id == id, cancellationToken);
+
+        if (upload == null)
+        {
+            return NotFound("File upload not found.");
+        }
+
+        if (upload.Status == "deleted")
+        {
+            return Ok(new
+            {
+                success = true,
+                uploadId = upload.Id,
+                upload.Status
+            });
+        }
+
+        if (upload.Status != "completed")
+        {
+            return BadRequest(
+                $"Only completed files can be deleted. Current status: {upload.Status}"
+            );
+        }
+
+        await _storageService.DeleteObjectAsync(
+            upload.ObjectKey,
+            cancellationToken
+        );
+
+        upload.Status = "deleted";
+        upload.MultipartUploadId = "";
+        upload.ErrorMessage = "";
+        upload.UpdatedAtUtc = DateTime.UtcNow;
+
+        await _db.SaveChangesAsync(cancellationToken);
+
+        return Ok(new
+        {
+            success = true,
+            uploadId = upload.Id,
+            upload.Status
+        });
+    }
 }

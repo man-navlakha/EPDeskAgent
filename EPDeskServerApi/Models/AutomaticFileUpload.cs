@@ -26,7 +26,7 @@ public class AutomaticFileUpload
 
     public long PartSizeBytes { get; set; }
 
-    // uploading, completed, aborted, failed
+    // uploading, completed, aborted, failed, deleted
     public string Status { get; set; } = "uploading";
 
     public string ErrorMessage { get; set; } = "";
