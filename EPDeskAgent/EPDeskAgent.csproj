@@ -4,10 +4,10 @@
     <TargetFramework>net8.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
-    <Version>1.0.12</Version>
-    <AssemblyVersion>1.0.12</AssemblyVersion>
-    <FileVersion>1.0.12</FileVersion>
-    <InformationalVersion>1.0.12</InformationalVersion>
+    <Version>1.0.13</Version>
+    <AssemblyVersion>1.0.13</AssemblyVersion>
+    <FileVersion>1.0.13</FileVersion>
+    <InformationalVersion>1.0.13</InformationalVersion>
     <UserSecretsId>dotnet-EPDeskAgent-1001eba0-b591-4af9-a1ea-84aefb4120ce</UserSecretsId>
   </PropertyGroup>
 

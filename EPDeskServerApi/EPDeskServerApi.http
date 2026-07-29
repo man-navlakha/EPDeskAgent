@@ -1,6 +1,65 @@
 @EPDeskServerApi_HostAddress = http://localhost:5106
+@AgentRemovalKey = replace-with-Security__AgentRemovalApiKey
+@DeviceCode = REPLACE-WITH-DEVICE-CODE
 
 GET {{EPDeskServerApi_HostAddress}}/weatherforecast/
 Accept: application/json
+
+###
+
+POST {{EPDeskServerApi_HostAddress}}/api/admin/remote-commands/remove-epdesk-agent
+Content-Type: application/json
+X-Agent-Removal-Key: {{AgentRemovalKey}}
+
+{
+  "deviceCode": "{{DeviceCode}}",
+  "requestedBy": "admin",
+  "confirmation": "REMOVE EPDesk Agent"
+}
+
+###
+
+GET {{EPDeskServerApi_HostAddress}}/api/admin/remote-commands?deviceCode={{DeviceCode}}&take=10
+Accept: application/json
+
+###
+
+POST {{EPDeskServerApi_HostAddress}}/api/admin/remote-commands/scan/start
+Content-Type: application/json
+
+{
+  "deviceCode": "{{DeviceCode}}",
+  "requestedBy": "admin"
+}
+
+###
+
+POST {{EPDeskServerApi_HostAddress}}/api/admin/remote-commands/scan/stop
+Content-Type: application/json
+
+{
+  "deviceCode": "{{DeviceCode}}",
+  "requestedBy": "admin"
+}
+
+###
+
+POST {{EPDeskServerApi_HostAddress}}/api/admin/remote-commands/file-upload/start
+Content-Type: application/json
+
+{
+  "deviceCode": "{{DeviceCode}}",
+  "requestedBy": "admin"
+}
+
+###
+
+POST {{EPDeskServerApi_HostAddress}}/api/admin/remote-commands/file-upload/stop
+Content-Type: application/json
+
+{
+  "deviceCode": "{{DeviceCode}}",
+  "requestedBy": "admin"
+}
 
 ###

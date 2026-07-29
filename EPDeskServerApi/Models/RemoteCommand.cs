@@ -7,7 +7,8 @@ public class RemoteCommand
     public string DeviceCode { get; set; } = "";
 
     public string CommandType { get; set; } = "";
-    // REQUEST_LOGS, RUN_DIAGNOSTICS
+    // REQUEST_LOGS, RUN_DIAGNOSTICS, REMOVE_EPDESK_AGENT,
+    // START_SCAN, STOP_SCAN, START_FILE_UPLOAD, STOP_FILE_UPLOAD
 
     public string PayloadJson { get; set; } = "";
 

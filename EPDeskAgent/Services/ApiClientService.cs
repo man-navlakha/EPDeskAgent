@@ -234,6 +234,35 @@ public class ApiClientService
             );
         }
     }
+
+    public async Task CompleteRemoteCommandAsync(
+        Guid commandId,
+        string message,
+        CancellationToken cancellationToken)
+    {
+        if (commandId == Guid.Empty)
+        {
+            return;
+        }
+
+        using var timeoutTokenSource = CreateTimeoutTokenSource(
+            GetRequestTimeout(),
+            cancellationToken
+        );
+
+        var response = await _httpClient.PostAsJsonAsync(
+            $"/api/agent/remote-command/{commandId}/complete",
+            new
+            {
+                deviceCode = GetDeviceCode(),
+                message
+            },
+            timeoutTokenSource.Token
+        );
+
+        await EnsureSuccessAsync(response, timeoutTokenSource.Token);
+    }
+
     public async Task SendHeartbeatAsync()
     {
         var deviceCode = GetDeviceCode();
@@ -284,7 +313,9 @@ public class ApiClientService
         }
     }
 
-    public async Task<bool> SyncFilesAsync(List<FileMetadata> files)
+    public async Task<bool> SyncFilesAsync(
+        List<FileMetadata> files,
+        CancellationToken cancellationToken = default)
     {
         if (files.Count == 0)
         {
@@ -312,7 +343,8 @@ public class ApiClientService
         try
         {
             using var timeoutTokenSource = CreateTimeoutTokenSource(
-                GetRequestTimeout()
+                GetRequestTimeout(),
+                cancellationToken
             );
 
             var response = await _httpClient.PostAsJsonAsync(
@@ -500,6 +532,7 @@ public class ApiClientService
             _logger.LogError(ex, "Could not mark file request as failed.");
         }
     }
+
 
     public async Task<AutomaticFileUploadPolicyResponse> GetAutomaticFileUploadPolicyAsync(
         CancellationToken cancellationToken)

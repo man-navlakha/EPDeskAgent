@@ -23,6 +23,8 @@ builder.Services.AddSingleton<FileMetadataRepository>();
 builder.Services.AddSingleton<FileScanner>();
 builder.Services.AddSingleton<ApiClientService>();
 builder.Services.AddSingleton<AutoUpdateService>();
+builder.Services.AddSingleton<AgentRemovalService>();
+builder.Services.AddSingleton<AgentActivityControl>();
 builder.Services.AddSingleton<ZipService>();
 builder.Services.AddHostedService<Worker>();
 builder.Services.AddSingleton<LocalLogService>();

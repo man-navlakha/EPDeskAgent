@@ -15,6 +15,8 @@ public class Worker : BackgroundService
     private readonly FileMetadataRepository _repository;
     private readonly ApiClientService _apiClientService;
     private readonly AutoUpdateService _autoUpdateService;
+    private readonly AgentRemovalService _agentRemovalService;
+    private readonly AgentActivityControl _activityControl;
     private readonly ZipService _zipService;
     private readonly LocalLogService _localLogService;
     private readonly AutomaticFileUploadService _automaticFileUploadService;
@@ -26,6 +28,8 @@ public class Worker : BackgroundService
         FileMetadataRepository repository,
         ApiClientService apiClientService,
         AutoUpdateService autoUpdateService,
+        AgentRemovalService agentRemovalService,
+        AgentActivityControl activityControl,
         ZipService zipService,
         LocalLogService localLogService,
         AutomaticFileUploadService automaticFileUploadService)
@@ -36,6 +40,8 @@ public class Worker : BackgroundService
         _repository = repository;
         _apiClientService = apiClientService;
         _autoUpdateService = autoUpdateService;
+        _agentRemovalService = agentRemovalService;
+        _activityControl = activityControl;
         _zipService = zipService;
         _localLogService = localLogService;
         _automaticFileUploadService = automaticFileUploadService;
@@ -79,13 +85,41 @@ public class Worker : BackgroundService
             intervalMinutes = 10;
         }
 
-        await Task.Delay(TimeSpan.FromMinutes(1), stoppingToken);
+        var nextDelay = TimeSpan.FromMinutes(1);
 
         while (!stoppingToken.IsCancellationRequested)
         {
+            await _activityControl.WaitForFileUploadTurnAsync(
+                nextDelay,
+                stoppingToken
+            );
+
+            var operation = _activityControl.BeginFileUpload(stoppingToken);
+
+            if (operation == null)
+            {
+                nextDelay = TimeSpan.FromMinutes(intervalMinutes);
+                continue;
+            }
+
             try
             {
-                await _automaticFileUploadService.UploadChangedFilesAsync(stoppingToken);
+                await _automaticFileUploadService.UploadChangedFilesAsync(
+                    operation.Token
+                );
+            }
+            catch (OperationCanceledException)
+                when (!stoppingToken.IsCancellationRequested)
+            {
+                _logger.LogInformation(
+                    "Automatic file upload stopped by remote command."
+                );
+
+                _localLogService.Info(
+                    "upload",
+                    "Automatic file upload stopped by remote command.",
+                    step: "automatic_upload_stopped"
+                );
             }
             catch (Exception exception)
             {
@@ -98,8 +132,12 @@ public class Worker : BackgroundService
                     step: "automatic_upload_loop_failed"
                 );
             }
+            finally
+            {
+                _activityControl.EndFileUpload(operation);
+            }
 
-            await Task.Delay(TimeSpan.FromMinutes(intervalMinutes), stoppingToken);
+            nextDelay = TimeSpan.FromMinutes(intervalMinutes);
         }
     }
 
@@ -190,7 +228,11 @@ public class Worker : BackgroundService
 
         var initialScanDelayMinutes = _configuration.GetValue<int>("Agent:InitialScanDelayMinutes");
 
-        if (initialScanDelayMinutes > 0)
+        var nextDelay = initialScanDelayMinutes > 0
+            ? TimeSpan.FromMinutes(initialScanDelayMinutes)
+            : TimeSpan.Zero;
+
+        if (nextDelay > TimeSpan.Zero)
         {
             _logger.LogInformation(
                 "Waiting {Minutes} minutes before first file scan.",
@@ -203,11 +245,23 @@ public class Worker : BackgroundService
                 step: "initial_scan_delay"
             );
 
-            await Task.Delay(TimeSpan.FromMinutes(initialScanDelayMinutes), stoppingToken);
         }
 
         while (!stoppingToken.IsCancellationRequested)
         {
+            await _activityControl.WaitForScanTurnAsync(
+                nextDelay,
+                stoppingToken
+            );
+
+            var operation = _activityControl.BeginScan(stoppingToken);
+
+            if (operation == null)
+            {
+                nextDelay = TimeSpan.FromMinutes(scanIntervalMinutes);
+                continue;
+            }
+
             try
             {
                 _logger.LogInformation("Starting file scan.");
@@ -219,7 +273,7 @@ public class Worker : BackgroundService
                 );
 
                 var scanExclusions = await _apiClientService
-                    .GetScanExclusionsAsync(stoppingToken);
+                    .GetScanExclusionsAsync(operation.Token);
 
                 _localLogService.Info(
                     "agent",
@@ -227,7 +281,7 @@ public class Worker : BackgroundService
                     step: "scan_exclusions_loaded"
                 );
 
-                await _fileScanner.ScanAsync(scanExclusions, stoppingToken);
+                await _fileScanner.ScanAsync(scanExclusions, operation.Token);
 
                 var totalFiles = await _repository.CountFilesAsync();
                 var pendingFiles = await _repository.CountPendingFilesAsync();
@@ -244,9 +298,20 @@ public class Worker : BackgroundService
                     step: "scan_completed"
                 );
 
-                await SyncPendingFilesAsync(stoppingToken);
+                await SyncPendingFilesAsync(operation.Token);
 
-                await _automaticFileUploadService.UploadChangedFilesAsync(stoppingToken);
+                _activityControl.TriggerFileUpload();
+            }
+            catch (OperationCanceledException)
+                when (!stoppingToken.IsCancellationRequested)
+            {
+                _logger.LogInformation("File scan stopped by remote command.");
+
+                _localLogService.Info(
+                    "agent",
+                    "File scan stopped by remote command.",
+                    step: "scan_stopped"
+                );
             }
             catch (Exception ex)
             {
@@ -259,8 +324,12 @@ public class Worker : BackgroundService
                     step: "scan_failed"
                 );
             }
+            finally
+            {
+                _activityControl.EndScan(operation);
+            }
 
-            await Task.Delay(TimeSpan.FromMinutes(scanIntervalMinutes), stoppingToken);
+            nextDelay = TimeSpan.FromMinutes(scanIntervalMinutes);
         }
     }
 
@@ -328,7 +397,10 @@ public class Worker : BackgroundService
                 step: "metadata_sync_started"
             );
 
-            var success = await _apiClientService.SyncFilesAsync(files);
+            var success = await _apiClientService.SyncFilesAsync(
+                files,
+                stoppingToken
+            );
 
             if (!success)
             {
@@ -401,6 +473,16 @@ public class Worker : BackgroundService
         {
             try
             {
+                if (IsActivityControlCommand(command.Type))
+                {
+                    await ProcessActivityControlCommandAsync(
+                        command,
+                        stoppingToken
+                    );
+
+                    continue;
+                }
+
                 if (command.Type == "UPLOAD_FILE")
                 {
                     _localLogService.Info(
@@ -663,6 +745,46 @@ public class Worker : BackgroundService
                     // Next step: we will implement diagnostics collection and upload to /api/agent/diagnostics.
                     continue;
                 }
+                else if (command.Type == "REMOVE_EPDESK_AGENT")
+                {
+                    _localLogService.Warning(
+                        "agent",
+                        "Remote EPDesk Agent removal command received.",
+                        step: "agent_removal_received"
+                    );
+
+                    try
+                    {
+                        var productCount = _agentRemovalService.ScheduleRemoval(
+                            command.CommandId
+                        );
+
+                        _localLogService.Warning(
+                            "agent",
+                            $"Scheduled removal of {productCount} EPDesk Agent installation(s).",
+                            step: "agent_removal_scheduled"
+                        );
+
+                        return;
+                    }
+                    catch (Exception ex)
+                    {
+                        _localLogService.Error(
+                            "agent",
+                            "Could not schedule EPDesk Agent removal.",
+                            ex,
+                            step: "agent_removal_failed"
+                        );
+
+                        await _apiClientService.FailRemoteCommandAsync(
+                            command.CommandId,
+                            ex.Message,
+                            stoppingToken
+                        );
+                    }
+
+                    continue;
+                }
                 else
                 {
                     _localLogService.Warning(
@@ -696,7 +818,80 @@ public class Worker : BackgroundService
                         stoppingToken
                     );
                 }
+                else if (command.CommandId != Guid.Empty)
+                {
+                    await _apiClientService.FailRemoteCommandAsync(
+                        command.CommandId,
+                        ex.Message,
+                        stoppingToken
+                    );
+                }
             }
         }
+    }
+
+    private static bool IsActivityControlCommand(string commandType)
+    {
+        return commandType is
+            "START_SCAN" or
+            "STOP_SCAN" or
+            "START_FILE_UPLOAD" or
+            "STOP_FILE_UPLOAD";
+    }
+
+    private async Task ProcessActivityControlCommandAsync(
+        AgentCommand command,
+        CancellationToken stoppingToken)
+    {
+        string message;
+        string step;
+
+        switch (command.Type)
+        {
+            case "START_SCAN":
+                _activityControl.StartScan();
+                message = "File scanning enabled; an immediate scan was requested.";
+                step = "scan_enabled";
+                break;
+
+            case "STOP_SCAN":
+                _activityControl.StopScan();
+                message = "File scanning disabled; any active scan was cancelled.";
+                step = "scan_disabled";
+                break;
+
+            case "START_FILE_UPLOAD":
+                _activityControl.StartFileUpload();
+                message =
+                    "Automatic file upload enabled; an immediate upload pass was requested.";
+                step = "automatic_upload_enabled";
+                break;
+
+            case "STOP_FILE_UPLOAD":
+                _activityControl.StopFileUpload();
+                message =
+                    "Automatic file upload disabled; any active automatic upload was cancelled.";
+                step = "automatic_upload_disabled";
+                break;
+
+            default:
+                throw new InvalidOperationException(
+                    $"Unsupported activity control command: {command.Type}"
+                );
+        }
+
+        _localLogService.Info(
+            command.Type.Contains("UPLOAD", StringComparison.Ordinal)
+                ? "upload"
+                : "agent",
+            message,
+            step: step
+        );
+
+        await _apiClientService.CompleteRemoteCommandAsync(
+            command.CommandId,
+            message,
+            stoppingToken
+        );
     }
 }
