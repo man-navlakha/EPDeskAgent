@@ -48,6 +48,7 @@ namespace EPDeskAgent.Database
             ,upload_status TEXT DEFAULT 'pending'
             ,upload_error TEXT DEFAULT ''
             ,last_upload_attempt_at_utc TEXT NULL
+            ,upload_attempt_count INTEGER NOT NULL DEFAULT 0
         );
 
         CREATE INDEX IF NOT EXISTS idx_files_name ON files(file_name);
@@ -62,6 +63,12 @@ namespace EPDeskAgent.Database
             EnsureColumn(connection, "files", "upload_status", "TEXT DEFAULT 'pending'");
             EnsureColumn(connection, "files", "upload_error", "TEXT DEFAULT ''");
             EnsureColumn(connection, "files", "last_upload_attempt_at_utc", "TEXT NULL");
+            EnsureColumn(
+                connection,
+                "files",
+                "upload_attempt_count",
+                "INTEGER NOT NULL DEFAULT 0"
+            );
 
             using var indexCommand = connection.CreateCommand();
             indexCommand.CommandText =

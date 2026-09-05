@@ -224,7 +224,64 @@ public sealed class B2ObjectStorageService :
             .ToList();
     }
 
-    public async Task CompleteMultipartUploadAsync(
+    public async Task<UploadedPartInfo> UploadPartFromFileAsync(
+        string objectKey,
+        string uploadId,
+        int partNumber,
+        string filePath,
+        long offsetBytes,
+        long lengthBytes,
+        CancellationToken cancellationToken = default)
+    {
+        ValidateObjectKey(objectKey);
+        ValidateUploadId(uploadId);
+        ValidatePartNumber(partNumber);
+
+        if (offsetBytes < 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(offsetBytes));
+        }
+
+        if (lengthBytes <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(lengthBytes));
+        }
+
+        var fileInfo = new FileInfo(filePath);
+        if (!fileInfo.Exists)
+        {
+            throw new FileNotFoundException("Upload source file was not found.", filePath);
+        }
+
+        if (offsetBytes + lengthBytes > fileInfo.Length)
+        {
+            throw new IOException("The requested upload part exceeds the file length.");
+        }
+
+        var request = new UploadPartRequest
+        {
+            BucketName = _options.BucketName,
+            Key = objectKey,
+            UploadId = uploadId,
+            PartNumber = partNumber,
+            PartSize = lengthBytes,
+            FilePath = filePath,
+            FilePosition = offsetBytes
+        };
+
+        var response = await _s3Client.UploadPartAsync(request, cancellationToken);
+
+        if (string.IsNullOrWhiteSpace(response.ETag))
+        {
+            throw new InvalidOperationException(
+                $"Backblaze did not return an ETag for part {partNumber}."
+            );
+        }
+
+        return new UploadedPartInfo(partNumber, lengthBytes, response.ETag);
+    }
+
+    public async Task<CompletedObjectInfo> CompleteMultipartUploadAsync(
         string objectKey,
         string uploadId,
         IReadOnlyCollection<UploadedPartInfo> parts,
@@ -271,7 +328,7 @@ public sealed class B2ObjectStorageService :
             PartETags = partETags
         };
 
-        await _s3Client.CompleteMultipartUploadAsync(
+        var response = await _s3Client.CompleteMultipartUploadAsync(
             request,
             cancellationToken
         );
@@ -280,6 +337,12 @@ public sealed class B2ObjectStorageService :
             "B2 multipart upload completed. ObjectKey: {ObjectKey}, Parts: {PartCount}",
             objectKey,
             parts.Count
+        );
+
+        return new CompletedObjectInfo(
+            objectKey,
+            response.VersionId ?? "",
+            response.ETag?.Trim('"') ?? ""
         );
     }
 
@@ -357,22 +420,98 @@ public sealed class B2ObjectStorageService :
             return true;
         }
         catch (AmazonS3Exception exception)
-            when (
-                exception.StatusCode == HttpStatusCode.NotFound ||
-                string.Equals(
-                    exception.ErrorCode,
-                    "NotFound",
-                    StringComparison.OrdinalIgnoreCase
-                ) ||
-                string.Equals(
-                    exception.ErrorCode,
-                    "NoSuchKey",
-                    StringComparison.OrdinalIgnoreCase
-                )
-            )
+            when (IsNotFound(exception))
         {
             return false;
         }
+    }
+
+    private static bool IsNotFound(AmazonS3Exception exception)
+    {
+        return exception.StatusCode == HttpStatusCode.NotFound ||
+            string.Equals(
+                exception.ErrorCode,
+                "NotFound",
+                StringComparison.OrdinalIgnoreCase
+            ) ||
+            string.Equals(
+                exception.ErrorCode,
+                "NoSuchKey",
+                StringComparison.OrdinalIgnoreCase
+            );
+    }
+
+    public async Task<ObjectMetadataInfo?> GetObjectMetadataAsync(
+        string objectKey,
+        CancellationToken cancellationToken = default)
+    {
+        ValidateObjectKey(objectKey);
+
+        try
+        {
+            var response = await _s3Client.GetObjectMetadataAsync(
+                new GetObjectMetadataRequest
+                {
+                    BucketName = _options.BucketName,
+                    Key = objectKey
+                },
+                cancellationToken
+            );
+
+            return new ObjectMetadataInfo(
+                objectKey,
+                response.ContentLength,
+                response.Headers.ContentType ?? "application/octet-stream",
+                response.ETag?.Trim('"') ?? "",
+                response.VersionId ?? "",
+                response.LastModified?.ToUniversalTime()
+            );
+        }
+        catch (AmazonS3Exception exception)
+            when (IsNotFound(exception))
+        {
+            return null;
+        }
+    }
+
+    public async Task<ObjectReadResult> OpenReadAsync(
+        string objectKey,
+        long? maxBytes = null,
+        CancellationToken cancellationToken = default)
+    {
+        ValidateObjectKey(objectKey);
+
+        if (maxBytes is <= 0)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(maxBytes),
+                "When supplied, maxBytes must be greater than zero."
+            );
+        }
+
+        var request = new GetObjectRequest
+        {
+            BucketName = _options.BucketName,
+            Key = objectKey
+        };
+
+        if (maxBytes.HasValue)
+        {
+            // A byte range is inclusive on both ends, so the last wanted
+            // offset is one less than the number of bytes requested.
+            request.ByteRange = new ByteRange(0, maxBytes.Value - 1);
+        }
+
+        var response = await _s3Client.GetObjectAsync(
+            request,
+            cancellationToken
+        );
+
+        return new ObjectReadResult(
+            response.ResponseStream,
+            response.ContentLength,
+            response.Headers.ContentType ?? "application/octet-stream"
+        );
     }
 
     public async Task DeleteObjectAsync(

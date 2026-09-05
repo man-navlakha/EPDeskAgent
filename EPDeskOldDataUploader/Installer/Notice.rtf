@@ -1,0 +1,18 @@
+{\rtf1\ansi\ansicpg1252\deff0\nouicompat{\fonttbl{\f0\fnil\fcharset0 Segoe UI;}}
+\viewkind4\uc1
+\pard\sa120\f0\fs20
+\b EPDesk Old User Data Uploader\b0\par
+\par
+Internal tool of Excellent Publicity. Not for distribution outside the company.\par
+\par
+This program uploads the contents of an archived \i Users Data\i0  folder to the EPDesk service. It needs the EPDesk agent file-upload key to do so. Treat that key as a company secret: anything installed with it can write files into the EPDesk corpus.\par
+\par
+What it does on this machine:\par
+\pard\sa60\li360
+\bullet\tab Reads the folder you select, and no other location.\par
+\bullet\tab Stores its settings, including the API key encrypted for your Windows account, under %LOCALAPPDATA%\\EPDeskOldDataUploader.\par
+\bullet\tab Sends file contents over HTTPS to the EPDesk API and its storage provider. Nothing is sent anywhere else.\par
+\pard\sa120
+\par
+Files uploaded through this tool are private company material and are retained by EPDesk under the same terms as files collected by the desktop agent.\par
+}

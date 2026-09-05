@@ -1,5 +1,6 @@
 ﻿using System.Net.Http.Json;
 using EPDeskAgent.Models;
+using Microsoft.Extensions.Options;
 using System.Reflection;
 namespace EPDeskAgent.Services;
 
@@ -9,14 +10,17 @@ public class ApiClientService
     private static readonly TimeSpan DefaultUploadTimeout = TimeSpan.FromMinutes(30);
 
     private readonly IConfiguration _configuration;
+    private readonly AgentFileUploadSecurityOptions _fileUploadSecurity;
     private readonly HttpClient _httpClient;
     private readonly ILogger<ApiClientService> _logger;
 
     public ApiClientService(
         IConfiguration configuration,
+        IOptions<AgentFileUploadSecurityOptions> fileUploadSecurity,
         ILogger<ApiClientService> logger)
     {
         _configuration = configuration;
+        _fileUploadSecurity = fileUploadSecurity.Value;
         _logger = logger;
 
         _httpClient = new HttpClient
@@ -556,6 +560,7 @@ public class ApiClientService
 
     public async Task<InitiateAutomaticFileUploadResponse> InitiateAutomaticFileUploadAsync(
         FileMetadata file,
+        string sha256,
         CancellationToken cancellationToken)
     {
         var request = new InitiateAutomaticFileUploadRequest
@@ -565,7 +570,8 @@ public class ApiClientService
             FileName = file.FileName,
             Extension = file.Extension,
             SizeBytes = file.SizeBytes,
-            LastModifiedAtUtc = file.UpdatedAtUtc
+            LastModifiedAtUtc = file.UpdatedAtUtc,
+            Sha256 = sha256
         };
 
         using var timeoutTokenSource = CreateTimeoutTokenSource(
@@ -573,9 +579,13 @@ public class ApiClientService
             cancellationToken
         );
 
-        var response = await _httpClient.PostAsJsonAsync(
+        using var httpRequest = CreateAutomaticFileUploadRequest(
+            HttpMethod.Post,
             "/api/agent/file-uploads/initiate",
-            request,
+            JsonContent.Create(request)
+        );
+        using var response = await _httpClient.SendAsync(
+            httpRequest,
             timeoutTokenSource.Token
         );
 
@@ -596,9 +606,12 @@ public class ApiClientService
             cancellationToken
         );
 
-        var response = await _httpClient.PostAsync(
-            $"/api/agent/file-uploads/{uploadId}/parts/{partNumber}/url",
-            null,
+        using var request = CreateAutomaticFileUploadRequest(
+            HttpMethod.Post,
+            $"/api/agent/file-uploads/{uploadId}/parts/{partNumber}/url"
+        );
+        using var response = await _httpClient.SendAsync(
+            request,
             timeoutTokenSource.Token
         );
 
@@ -652,9 +665,12 @@ public class ApiClientService
             cancellationToken
         );
 
-        var response = await _httpClient.PostAsync(
-            $"/api/agent/file-uploads/{uploadId}/complete",
-            null,
+        using var request = CreateAutomaticFileUploadRequest(
+            HttpMethod.Post,
+            $"/api/agent/file-uploads/{uploadId}/complete"
+        );
+        using var response = await _httpClient.SendAsync(
+            request,
             timeoutTokenSource.Token
         );
 
@@ -673,16 +689,39 @@ public class ApiClientService
                 cancellationToken
             );
 
-            await _httpClient.PostAsJsonAsync(
+            using var request = CreateAutomaticFileUploadRequest(
+                HttpMethod.Post,
                 $"/api/agent/file-uploads/{uploadId}/failure",
-                new { errorMessage },
+                JsonContent.Create(new { errorMessage })
+            );
+            using var response = await _httpClient.SendAsync(
+                request,
                 timeoutTokenSource.Token
             );
+            await EnsureSuccessAsync(response, timeoutTokenSource.Token);
         }
         catch (Exception exception)
         {
             _logger.LogWarning(exception, "Could not report automatic upload failure.");
         }
+    }
+
+    private HttpRequestMessage CreateAutomaticFileUploadRequest(
+        HttpMethod method,
+        string requestUri,
+        HttpContent? content = null)
+    {
+        var request = new HttpRequestMessage(method, requestUri)
+        {
+            Content = content
+        };
+
+        request.Headers.Add(
+            AgentFileUploadSecurityOptions.HeaderName,
+            _fileUploadSecurity.AgentFileUploadApiKey
+        );
+
+        return request;
     }
 
     private static async Task EnsureSuccessAsync(

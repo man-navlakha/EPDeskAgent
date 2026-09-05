@@ -22,6 +22,12 @@ public class AutomaticFileUpload
 
     public string ObjectKey { get; set; } = "";
 
+    public string B2VersionId { get; set; } = "";
+
+    public string ObjectETag { get; set; } = "";
+
+    public string Sha256 { get; set; } = "";
+
     public string MultipartUploadId { get; set; } = "";
 
     public long PartSizeBytes { get; set; }

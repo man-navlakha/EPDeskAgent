@@ -5,6 +5,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
+using NpgsqlTypes;
 
 #nullable disable
 
@@ -116,6 +117,11 @@ namespace EPDeskServerApi.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
 
+                    b.Property<string>("B2VersionId")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
                     b.Property<DateTime?>("CompletedAtUtc")
                         .HasColumnType("timestamp with time zone");
 
@@ -153,6 +159,11 @@ namespace EPDeskServerApi.Migrations
                         .IsRequired()
                         .HasColumnType("text");
 
+                    b.Property<string>("ObjectETag")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
                     b.Property<string>("ObjectKey")
                         .IsRequired()
                         .HasColumnType("text");
@@ -163,6 +174,11 @@ namespace EPDeskServerApi.Migrations
                     b.Property<string>("PathIdentity")
                         .IsRequired()
                         .HasColumnType("text");
+
+                    b.Property<string>("Sha256")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
 
                     b.Property<long>("SizeBytes")
                         .HasColumnType("bigint");
@@ -342,6 +358,450 @@ namespace EPDeskServerApi.Migrations
                     b.ToTable("DeviceScanExclusions");
                 });
 
+            modelBuilder.Entity("EPDeskServerApi.Models.Document", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Classification")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Department")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)");
+
+                    b.Property<string>("DeviceCode")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)");
+
+                    b.Property<string>("DisplayName")
+                        .IsRequired()
+                        .HasMaxLength(512)
+                        .HasColumnType("character varying(512)");
+
+                    b.Property<bool>("IsDeleted")
+                        .HasColumnType("boolean");
+
+                    b.Property<Guid>("SourceRecordId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("SourceType")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<DateTime>("UpdatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("DeviceCode");
+
+                    b.HasIndex("Department", "Classification");
+
+                    b.HasIndex("SourceType", "SourceRecordId")
+                        .IsUnique();
+
+                    b.ToTable("Documents");
+                });
+
+            modelBuilder.Entity("EPDeskServerApi.Models.DocumentDerivative", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("B2VersionId")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
+                    b.Property<string>("BucketName")
+                        .IsRequired()
+                        .HasMaxLength(255)
+                        .HasColumnType("character varying(255)");
+
+                    b.Property<string>("ContentType")
+                        .IsRequired()
+                        .HasMaxLength(255)
+                        .HasColumnType("character varying(255)");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("DocumentVersionId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("MetadataJson")
+                        .IsRequired()
+                        .HasColumnType("jsonb");
+
+                    b.Property<string>("ObjectETag")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
+                    b.Property<string>("ObjectKey")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<int>("Ordinal")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("PipelineVersion")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("Sha256")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<long>("SizeBytes")
+                        .HasColumnType("bigint");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("DocumentVersionId", "PipelineVersion", "Kind", "Ordinal")
+                        .IsUnique();
+
+                    b.ToTable("DocumentDerivatives", t =>
+                        {
+                            t.HasCheckConstraint("CK_DocumentDerivatives_Ordinal", "\"Ordinal\" >= 0");
+
+                            t.HasCheckConstraint("CK_DocumentDerivatives_SizeBytes", "\"SizeBytes\" >= 0");
+                        });
+                });
+
+            modelBuilder.Entity("EPDeskServerApi.Models.DocumentSection", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("CharacterCount")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Content")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("ContentHash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("DocumentVersionId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Heading")
+                        .IsRequired()
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)");
+
+                    b.Property<string>("Language")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<string>("LocatorJson")
+                        .IsRequired()
+                        .HasColumnType("jsonb");
+
+                    b.Property<string>("MetadataJson")
+                        .IsRequired()
+                        .HasColumnType("jsonb");
+
+                    b.Property<string>("OcrContent")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<int>("Ordinal")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("PipelineVersion")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<NpgsqlTsVector>("SearchVector")
+                        .IsRequired()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("tsvector")
+                        .HasAnnotation("Npgsql:TsVectorConfig", "simple")
+                        .HasAnnotation("Npgsql:TsVectorProperties", new[] { "Heading", "Content", "OcrContent" });
+
+                    b.Property<int?>("SectionNumber")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("SectionType")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<int?>("TokenCount")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("SearchVector");
+
+                    NpgsqlIndexBuilderExtensions.HasMethod(b.HasIndex("SearchVector"), "GIN");
+
+                    b.HasIndex("DocumentVersionId", "PipelineVersion", "Ordinal")
+                        .IsUnique();
+
+                    b.HasIndex("DocumentVersionId", "PipelineVersion", "SectionType", "SectionNumber");
+
+                    b.ToTable("DocumentSections", t =>
+                        {
+                            t.HasCheckConstraint("CK_DocumentSections_CharacterCount", "\"CharacterCount\" >= 0");
+
+                            t.HasCheckConstraint("CK_DocumentSections_Ordinal", "\"Ordinal\" >= 0");
+                        });
+                });
+
+            modelBuilder.Entity("EPDeskServerApi.Models.DocumentVersion", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("B2VersionId")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
+                    b.Property<string>("BucketName")
+                        .IsRequired()
+                        .HasMaxLength(255)
+                        .HasColumnType("character varying(255)");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("DeclaredContentType")
+                        .IsRequired()
+                        .HasMaxLength(255)
+                        .HasColumnType("character varying(255)");
+
+                    b.Property<string>("DerivativePrefix")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("DetectedContentType")
+                        .IsRequired()
+                        .HasMaxLength(255)
+                        .HasColumnType("character varying(255)");
+
+                    b.Property<Guid>("DocumentId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime?>("ExtractedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("ExtractionError")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("ExtractionErrorCode")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)");
+
+                    b.Property<string>("ExtractionMetadataJson")
+                        .IsRequired()
+                        .HasColumnType("jsonb");
+
+                    b.Property<string>("ExtractionPipelineVersion")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("ExtractionStatus")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<string>("FileExtension")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<string>("FileName")
+                        .IsRequired()
+                        .HasMaxLength(512)
+                        .HasColumnType("character varying(512)");
+
+                    b.Property<string>("ObjectETag")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
+                    b.Property<string>("ObjectKey")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<int?>("PageCount")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("SectionCount")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Sha256")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<long>("SizeBytes")
+                        .HasColumnType("bigint");
+
+                    b.Property<DateTime?>("SourceModifiedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("SourceVersionKey")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)");
+
+                    b.Property<DateTime>("UpdatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("VersionNumber")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ExtractionStatus");
+
+                    b.HasIndex("Sha256");
+
+                    b.HasIndex("DocumentId", "SourceVersionKey")
+                        .IsUnique();
+
+                    b.HasIndex("DocumentId", "VersionNumber")
+                        .IsUnique();
+
+                    b.ToTable("DocumentVersions", t =>
+                        {
+                            t.HasCheckConstraint("CK_DocumentVersions_SectionCount", "\"SectionCount\" >= 0");
+
+                            t.HasCheckConstraint("CK_DocumentVersions_SizeBytes", "\"SizeBytes\" >= 0");
+
+                            t.HasCheckConstraint("CK_DocumentVersions_VersionNumber", "\"VersionNumber\" > 0");
+                        });
+                });
+
+            modelBuilder.Entity("EPDeskServerApi.Models.ExtractionJob", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("AttemptCount")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime?>("CompletedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("DocumentVersionId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("ErrorCode")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)");
+
+                    b.Property<string>("ErrorMessage")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<DateTime?>("LastAttemptAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("LastHeartbeatAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("LeaseOwner")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)");
+
+                    b.Property<string>("LeaseToken")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<DateTime?>("LeaseUntilUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("MaxAttempts")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime>("NextAttemptAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("PipelineVersion")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<int>("Priority")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime?>("StartedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<DateTime>("UpdatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("LeaseUntilUtc")
+                        .HasDatabaseName("IX_ExtractionJobs_RunningLease")
+                        .HasFilter("\"Status\" = 'running'");
+
+                    b.HasIndex("DocumentVersionId", "PipelineVersion")
+                        .IsUnique();
+
+                    b.HasIndex("Priority", "NextAttemptAtUtc", "CreatedAtUtc")
+                        .IsDescending(true, false, false)
+                        .HasDatabaseName("IX_ExtractionJobs_Claim")
+                        .HasFilter("\"Status\" IN ('queued', 'retry_wait')");
+
+                    b.ToTable("ExtractionJobs", t =>
+                        {
+                            t.HasCheckConstraint("CK_ExtractionJobs_AttemptCount", "\"AttemptCount\" >= 0");
+
+                            t.HasCheckConstraint("CK_ExtractionJobs_MaxAttempts", "\"MaxAttempts\" > 0");
+                        });
+                });
+
             modelBuilder.Entity("EPDeskServerApi.Models.FileIndex", b =>
                 {
                     b.Property<Guid>("Id")
@@ -480,6 +940,179 @@ namespace EPDeskServerApi.Migrations
                     b.ToTable("FileUploadPolicies");
                 });
 
+            modelBuilder.Entity("EPDeskServerApi.Models.OldUserDataFile", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("AttemptCount")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("B2VersionId")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
+                    b.Property<DateTime?>("CompletedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("ContentType")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("DeviceCode")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("ErrorMessage")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("Extension")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("FileName")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("FullPath")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<Guid>("ImportJobId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("IndexedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("LeaseUntilUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("MultipartUploadId")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("ObjectETag")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
+                    b.Property<string>("ObjectKey")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<long>("PartSizeBytes")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("RelativePath")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("Sha256")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<long>("SizeBytes")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<DateTime>("UpdatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("UploadStartedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<long>("UploadedBytes")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("UserFolder")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ImportJobId", "DeviceCode");
+
+                    b.HasIndex("ImportJobId", "FullPath")
+                        .IsUnique();
+
+                    b.HasIndex("ImportJobId", "Status");
+
+                    b.ToTable("OldUserDataFiles");
+                });
+
+            modelBuilder.Entity("EPDeskServerApi.Models.OldUserDataImportJob", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime?>("CompletedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("ErrorMessage")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<long>("FailedFileCount")
+                        .HasColumnType("bigint");
+
+                    b.Property<long>("IndexedFileCount")
+                        .HasColumnType("bigint");
+
+                    b.Property<long>("IndexedSizeBytes")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("RootPath")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("RootPathIdentity")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<DateTime?>("ScanCompletedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("SourceLabel")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<DateTime>("UpdatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<long>("UploadedFileCount")
+                        .HasColumnType("bigint");
+
+                    b.Property<long>("UploadedSizeBytes")
+                        .HasColumnType("bigint");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("RootPathIdentity")
+                        .IsUnique();
+
+                    b.HasIndex("Status");
+
+                    b.ToTable("OldUserDataImportJobs");
+                });
+
             modelBuilder.Entity("EPDeskServerApi.Models.RemoteCommand", b =>
                 {
                     b.Property<Guid>("Id")
@@ -524,6 +1157,80 @@ namespace EPDeskServerApi.Migrations
                     b.HasIndex("DeviceCode", "Status");
 
                     b.ToTable("RemoteCommands");
+                });
+
+            modelBuilder.Entity("EPDeskServerApi.Models.DocumentDerivative", b =>
+                {
+                    b.HasOne("EPDeskServerApi.Models.DocumentVersion", "DocumentVersion")
+                        .WithMany("Derivatives")
+                        .HasForeignKey("DocumentVersionId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("DocumentVersion");
+                });
+
+            modelBuilder.Entity("EPDeskServerApi.Models.DocumentSection", b =>
+                {
+                    b.HasOne("EPDeskServerApi.Models.DocumentVersion", "DocumentVersion")
+                        .WithMany("Sections")
+                        .HasForeignKey("DocumentVersionId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("DocumentVersion");
+                });
+
+            modelBuilder.Entity("EPDeskServerApi.Models.DocumentVersion", b =>
+                {
+                    b.HasOne("EPDeskServerApi.Models.Document", "Document")
+                        .WithMany("Versions")
+                        .HasForeignKey("DocumentId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Document");
+                });
+
+            modelBuilder.Entity("EPDeskServerApi.Models.ExtractionJob", b =>
+                {
+                    b.HasOne("EPDeskServerApi.Models.DocumentVersion", "DocumentVersion")
+                        .WithMany("ExtractionJobs")
+                        .HasForeignKey("DocumentVersionId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("DocumentVersion");
+                });
+
+            modelBuilder.Entity("EPDeskServerApi.Models.OldUserDataFile", b =>
+                {
+                    b.HasOne("EPDeskServerApi.Models.OldUserDataImportJob", "ImportJob")
+                        .WithMany("Files")
+                        .HasForeignKey("ImportJobId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("ImportJob");
+                });
+
+            modelBuilder.Entity("EPDeskServerApi.Models.Document", b =>
+                {
+                    b.Navigation("Versions");
+                });
+
+            modelBuilder.Entity("EPDeskServerApi.Models.DocumentVersion", b =>
+                {
+                    b.Navigation("Derivatives");
+
+                    b.Navigation("ExtractionJobs");
+
+                    b.Navigation("Sections");
+                });
+
+            modelBuilder.Entity("EPDeskServerApi.Models.OldUserDataImportJob", b =>
+                {
+                    b.Navigation("Files");
                 });
 #pragma warning restore 612, 618
         }

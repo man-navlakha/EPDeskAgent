@@ -1,0 +1,27 @@
+--- Task 1 ---
+Before uploading, ensure the file is stable:
+
+File discovered
+     ↓
+Wait 30–90 seconds
+     ↓
+Check size and modified time
+     ↓
+Wait again
+     ↓
+Values unchanged?
+     ├── No: delay
+     └── Yes: upload
+
+--- Task 2 ---
+
+Also ignore temporary files such as:
+
+~$proposal.docx
+*.tmp
+*.part
+*.crdownload
+*.download
+
+--- Task 3 ---
+

@@ -5,6 +5,7 @@ using EPDeskServerApi.Data;
 using EPDeskServerApi.Models;
 using EPDeskServerApi.Services;
 using EPDeskServerApi.Services.Storage;
+using EPDeskServerApi.Security;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
@@ -15,11 +16,13 @@ namespace EPDeskServerApi.Controllers;
 
 [ApiController]
 [Route("api/agent/file-uploads")]
+[ServiceFilter<AgentFileUploadApiKeyAuthorizationFilter>]
 public sealed class AgentFileUploadsController : ControllerBase
 {
     private readonly AppDbContext _db;
     private readonly FileUploadPolicyService _policyService;
     private readonly IObjectStorageService _storageService;
+    private readonly DocumentExtractionQueueService _extractionQueue;
     private readonly B2StorageOptions _storageOptions;
     private readonly ILogger<AgentFileUploadsController> _logger;
 
@@ -27,12 +30,14 @@ public sealed class AgentFileUploadsController : ControllerBase
         AppDbContext db,
         FileUploadPolicyService policyService,
         IObjectStorageService storageService,
+        DocumentExtractionQueueService extractionQueue,
         IOptions<B2StorageOptions> storageOptions,
         ILogger<AgentFileUploadsController> logger)
     {
         _db = db;
         _policyService = policyService;
         _storageService = storageService;
+        _extractionQueue = extractionQueue;
         _storageOptions = storageOptions.Value;
         _logger = logger;
     }
@@ -88,6 +93,12 @@ public sealed class AgentFileUploadsController : ControllerBase
         var pathIdentity = CreatePathIdentity(fullPath);
         var fileName = SanitizeFileName(dto.FileName);
         var lastModifiedAtUtc = ForceUtc(dto.LastModifiedAtUtc);
+        var sha256 = NormalizeSha256(dto.Sha256);
+        if (sha256.Length > 0 &&
+            (sha256.Length != 64 || !sha256.All(Uri.IsHexDigit)))
+        {
+            return BadRequest("SHA256 must contain exactly 64 hexadecimal characters.");
+        }
 
         var record = await _db.AutomaticFileUploads.FirstOrDefaultAsync(
             x => x.DeviceCode == deviceCode && x.PathIdentity == pathIdentity,
@@ -96,10 +107,32 @@ public sealed class AgentFileUploadsController : ControllerBase
 
         var sameVersion = record != null &&
                           record.SizeBytes == dto.SizeBytes &&
-                          record.LastModifiedAtUtc == lastModifiedAtUtc;
+                          record.LastModifiedAtUtc == lastModifiedAtUtc &&
+                          (sha256.Length == 0 ||
+                           record.Sha256.Length == 0 ||
+                           string.Equals(
+                               record.Sha256,
+                               sha256,
+                               StringComparison.OrdinalIgnoreCase
+                           ));
 
         if (sameVersion && record!.Status == "completed")
         {
+            await using var completedTransaction =
+                await _db.Database.BeginTransactionAsync(cancellationToken);
+            if (sha256.Length > 0)
+            {
+                record.Sha256 = sha256;
+                record.UpdatedAtUtc = DateTime.UtcNow;
+            }
+
+            await _extractionQueue.EnsureAutomaticUploadQueuedAsync(
+                record,
+                cancellationToken
+            );
+            await _db.SaveChangesAsync(cancellationToken);
+            await completedTransaction.CommitAsync(cancellationToken);
+
             return Ok(new
             {
                 shouldUpload = false,
@@ -167,7 +200,14 @@ public sealed class AgentFileUploadsController : ControllerBase
             }
         }
 
-        var objectKey = CreateObjectKey(deviceCode, fullPath, fileName);
+        var objectKey = CreateObjectKey(
+            deviceCode,
+            fullPath,
+            fileName,
+            dto.SizeBytes,
+            lastModifiedAtUtc,
+            sha256
+        );
         var contentType = GetContentType(extension);
         var multipart = await _storageService.StartMultipartUploadAsync(
             objectKey,
@@ -199,6 +239,9 @@ public sealed class AgentFileUploadsController : ControllerBase
             record.LastModifiedAtUtc = lastModifiedAtUtc;
             record.ContentType = contentType;
             record.ObjectKey = multipart.ObjectKey;
+            record.B2VersionId = "";
+            record.ObjectETag = "";
+            record.Sha256 = sha256;
             record.MultipartUploadId = multipart.UploadId;
             record.PartSizeBytes = _storageOptions.PartSizeBytes;
             record.Status = "uploading";
@@ -331,7 +374,23 @@ public sealed class AgentFileUploadsController : ControllerBase
 
         if (record.Status == "completed")
         {
-            return Ok(new { success = true, uploadId = record.Id, record.Status });
+            await using var completedTransaction =
+                await _db.Database.BeginTransactionAsync(cancellationToken);
+
+            var existingQueue = await _extractionQueue
+                .EnsureAutomaticUploadQueuedAsync(record, cancellationToken);
+
+            await _db.SaveChangesAsync(cancellationToken);
+            await completedTransaction.CommitAsync(cancellationToken);
+
+            return Ok(new
+            {
+                success = true,
+                uploadId = record.Id,
+                record.Status,
+                extractionJobId = existingQueue.ExtractionJobId,
+                extractionQueued = existingQueue.JobCreated
+            });
         }
 
         if (record.Status != "uploading")
@@ -353,20 +412,32 @@ public sealed class AgentFileUploadsController : ControllerBase
             return BadRequest(validationError);
         }
 
-        await _storageService.CompleteMultipartUploadAsync(
+        var completedObject = await _storageService.CompleteMultipartUploadAsync(
             record.ObjectKey,
             record.MultipartUploadId,
             parts,
             cancellationToken
         );
 
+        await using var transaction = await _db.Database.BeginTransactionAsync(
+            cancellationToken
+        );
+
         record.Status = "completed";
         record.ErrorMessage = "";
+        record.B2VersionId = completedObject.VersionId;
+        record.ObjectETag = completedObject.ETag;
         record.CompletedAtUtc = DateTime.UtcNow;
         record.UpdatedAtUtc = DateTime.UtcNow;
         record.MultipartUploadId = "";
 
+        var queueResult = await _extractionQueue.EnsureAutomaticUploadQueuedAsync(
+            record,
+            cancellationToken
+        );
+
         await _db.SaveChangesAsync(cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
 
         return Ok(new
         {
@@ -374,7 +445,9 @@ public sealed class AgentFileUploadsController : ControllerBase
             uploadId = record.Id,
             record.Status,
             record.ObjectKey,
-            record.CompletedAtUtc
+            record.CompletedAtUtc,
+            extractionJobId = queueResult.ExtractionJobId,
+            extractionQueued = queueResult.JobCreated
         });
     }
 
@@ -515,18 +588,26 @@ public sealed class AgentFileUploadsController : ControllerBase
     private static string CreateObjectKey(
         string deviceCode,
         string fullPath,
-        string fileName)
+        string fileName,
+        long sizeBytes,
+        DateTime lastModifiedAtUtc,
+        string sha256)
     {
         var safeDeviceCode = new string(deviceCode
             .Select(x => char.IsLetterOrDigit(x) || x is '-' or '_' or '.' ? x : '_')
             .ToArray());
 
         var normalizedPath = CreatePathIdentity(fullPath);
-        var hash = Convert.ToHexString(
+        var pathHash = Convert.ToHexString(
             SHA256.HashData(Encoding.UTF8.GetBytes(normalizedPath))
         ).ToLowerInvariant();
 
-        return $"devices/{safeDeviceCode}/{hash}/{fileName}";
+        var revisionIdentity = $"{sizeBytes}:{lastModifiedAtUtc.Ticks}:{sha256}";
+        var revisionHash = Convert.ToHexString(
+            SHA256.HashData(Encoding.UTF8.GetBytes(revisionIdentity))
+        ).ToLowerInvariant();
+
+        return $"devices/{safeDeviceCode}/{pathHash}/{revisionHash}/{fileName}";
     }
 
     private static string CreatePathIdentity(string fullPath)
@@ -537,6 +618,9 @@ public sealed class AgentFileUploadsController : ControllerBase
             .TrimEnd('/')
             .ToUpperInvariant();
     }
+
+    private static string NormalizeSha256(string value) =>
+        string.IsNullOrWhiteSpace(value) ? "" : value.Trim().ToLowerInvariant();
 
     private static string GetContentType(string extension)
     {
@@ -575,6 +659,8 @@ public sealed class InitiateAutomaticFileUploadDto
     public string Extension { get; set; } = "";
     public long SizeBytes { get; set; }
     public DateTime LastModifiedAtUtc { get; set; }
+
+    public string Sha256 { get; set; } = "";
 }
 
 public sealed class AutomaticFileUploadFailureDto

@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "epdesk": {
+      "type": "http",
+      "url": "https://epdesk-mcp-production.up.railway.app/mcp"
+    }
+  }
+}

@@ -1,5 +1,6 @@
 using EPDeskAgent.Database;
 using EPDeskAgent.Models;
+using System.Security.Cryptography;
 
 namespace EPDeskAgent.Services;
 
@@ -110,7 +111,13 @@ public sealed class AutomaticFileUploadService
                     completedCount++;
                     consecutiveFailures = 0;
                 }
-                else if (result == AutomaticUploadResult.Failed)
+                else if (result == AutomaticUploadResult.FileFailed)
+                {
+                    // One bad file must not stop the pass. It has already been
+                    // counted against its own retry budget, so move on.
+                    failedCount++;
+                }
+                else if (result == AutomaticUploadResult.SystemFailed)
                 {
                     failedCount++;
                     consecutiveFailures++;
@@ -121,7 +128,7 @@ public sealed class AutomaticFileUploadService
 
                         _localLogService.Warning(
                             "upload",
-                            $"Automatic upload pass stopped after {consecutiveFailures} consecutive failures. It will retry during the next scheduled pass.",
+                            $"Automatic upload pass stopped after {consecutiveFailures} consecutive storage failures. It will retry during the next scheduled pass.",
                             step: "automatic_upload_circuit_open"
                         );
 
@@ -204,8 +211,21 @@ public sealed class AutomaticFileUploadService
 
             await _repository.MarkAutomaticUploadStartedAsync(file.Id);
 
+            var sha256 = await CalculateSha256Async(
+                file.FullPath,
+                cancellationToken
+            );
+            currentInfo.Refresh();
+            if (!currentInfo.Exists ||
+                currentInfo.Length != file.SizeBytes ||
+                currentInfo.LastWriteTimeUtc != file.UpdatedAtUtc)
+            {
+                throw new IOException("File changed while its checksum was being calculated.");
+            }
+
             var upload = await _apiClient.InitiateAutomaticFileUploadAsync(
                 file,
+                sha256,
                 cancellationToken
             );
 
@@ -243,6 +263,18 @@ public sealed class AutomaticFileUploadService
                 currentInfo.LastWriteTimeUtc != file.UpdatedAtUtc)
             {
                 throw new IOException("File changed while it was being uploaded.");
+            }
+
+            var postUploadSha256 = await CalculateSha256Async(
+                file.FullPath,
+                cancellationToken
+            );
+            if (!string.Equals(
+                    sha256,
+                    postUploadSha256,
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                throw new IOException("File content changed while it was being uploaded.");
             }
 
             await _apiClient.CompleteAutomaticFileUploadAsync(
@@ -304,7 +336,9 @@ public sealed class AutomaticFileUploadService
                 step: "automatic_upload_failed"
             );
 
-            return AutomaticUploadResult.Failed;
+            return IsSingleFileFailure(exception)
+                ? AutomaticUploadResult.FileFailed
+                : AutomaticUploadResult.SystemFailed;
         }
     }
 
@@ -359,10 +393,53 @@ public sealed class AutomaticFileUploadService
         return value.Length == 0 ? "" : "." + value.ToLowerInvariant();
     }
 
+    private static async Task<string> CalculateSha256Async(
+        string filePath,
+        CancellationToken cancellationToken)
+    {
+        await using var stream = new FileStream(
+            filePath,
+            FileMode.Open,
+            FileAccess.Read,
+            FileShare.Read,
+            128 * 1024,
+            FileOptions.Asynchronous | FileOptions.SequentialScan
+        );
+        var hash = await SHA256.HashDataAsync(stream, cancellationToken);
+        return Convert.ToHexString(hash).ToLowerInvariant();
+    }
+
     private enum AutomaticUploadResult
     {
         Uploaded,
         Skipped,
-        Failed
+        /// <summary>
+        /// This one file could not be read or accepted. Other files are unaffected,
+        /// so the pass keeps going and the file backs off on its own.
+        /// </summary>
+        FileFailed,
+        /// <summary>
+        /// The failure looks like it affects every upload (storage, network, auth).
+        /// Enough of these in a row and the pass stops early.
+        /// </summary>
+        SystemFailed
+    }
+
+    /// <summary>
+    /// Decides whether a failure is specific to one file or points at the storage
+    /// backend. Only backend failures are allowed to stop the whole upload pass -
+    /// a single unreadable file used to halt every remaining upload on the device.
+    /// </summary>
+    private static bool IsSingleFileFailure(Exception exception)
+    {
+        return exception switch
+        {
+            UnauthorizedAccessException => true,
+            InvalidOperationException => true,
+            // Covers OneDrive placeholders ("Access to the cloud file is denied"),
+            // locked files, and files that changed mid-upload.
+            IOException => true,
+            _ => false
+        };
     }
 }

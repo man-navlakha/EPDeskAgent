@@ -1,4 +1,9 @@
 <Solution>
   <Project Path="EPDeskAgent/EPDeskAgent.csproj" />
+  <Project Path="EPDeskExtractionSandbox/EPDeskExtractionSandbox.csproj" />
+  <Project Path="EPDeskExtractionWorker/EPDeskExtractionWorker.csproj" />
+  <Project Path="EPDeskExtractionWorker.Tests/EPDeskExtractionWorker.Tests.csproj" />
+  <Project Path="EPDeskMcpServer/EPDeskMcpServer.csproj" />
+  <Project Path="EPDeskOldDataUploader/EPDeskOldDataUploader.csproj" />
   <Project Path="EPDeskServerApi/EPDeskServerApi.csproj" />
 </Solution>

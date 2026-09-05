@@ -1,0 +1,88 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
+     xmlns:ui="http://wixtoolset.org/schemas/v4/wxs/ui">
+
+  <!--
+    Installer for the one-time Old User Data uploader. Built by build-msi.ps1,
+    which passes in the publish folder and the version so this file never has to
+    be edited to cut a new build.
+  -->
+  <Package
+    Name="EPDesk Old User Data Uploader"
+    Manufacturer="Excellent Publicity"
+    Version="$(var.ProductVersion)"
+    UpgradeCode="A3DA4823-FA65-40B3-ACC5-871E80121A9F"
+    Scope="perMachine"
+    Compressed="yes">
+
+    <SummaryInformation
+      Description="Uploads an archived Users Data folder to EPDesk" />
+
+    <!-- Installing a newer build replaces the old one in place. -->
+    <MajorUpgrade
+      DowngradeErrorMessage="A newer version of [ProductName] is already installed." />
+
+    <MediaTemplate EmbedCab="yes" CompressionLevel="high" />
+
+    <Icon Id="AppIcon.exe" SourceFile="$(var.PublishDir)\EPDeskOldDataUploader.exe" />
+    <Property Id="ARPPRODUCTICON" Value="AppIcon.exe" />
+    <Property Id="ARPNOREPAIR" Value="1" />
+
+    <WixVariable Id="WixUILicenseRtf" Value="Notice.rtf" />
+
+    <!-- InstallDirectory sets WIXUI_INSTALLDIR itself; declaring it again collides. -->
+    <ui:WixUI Id="WixUI_InstallDir" InstallDirectory="INSTALLFOLDER" />
+
+    <Feature Id="Main" Title="EPDesk Old User Data Uploader" Level="1">
+      <ComponentGroupRef Id="ApplicationFiles" />
+      <ComponentGroupRef Id="ApplicationShortcuts" />
+    </Feature>
+  </Package>
+
+  <Fragment>
+    <StandardDirectory Id="ProgramFiles6432Folder">
+      <Directory Id="INSTALLFOLDER" Name="EPDesk Old User Data Uploader" />
+    </StandardDirectory>
+
+    <StandardDirectory Id="ProgramMenuFolder">
+      <Directory Id="ShortcutFolder" Name="EPDesk" />
+    </StandardDirectory>
+  </Fragment>
+
+  <!--
+    The ApplicationFiles component group is generated from the publish output by
+    build-msi.ps1 into obj\Files.wxs. WiX 4 has no built-in directory harvester,
+    and generating it keeps one authoring file covering both the self-contained
+    build and the small framework-dependent one.
+  -->
+
+  <Fragment>
+    <ComponentGroup Id="ApplicationShortcuts">
+      <Component Id="StartMenuShortcut"
+                 Directory="ShortcutFolder"
+                 Guid="5AB0B109-8817-4A6F-90F1-7991C11670A7">
+        <Shortcut Id="AppStartMenuShortcut"
+                  Name="EPDesk Old User Data Uploader"
+                  Description="Upload an archived Users Data folder to EPDesk"
+                  Target="[INSTALLFOLDER]EPDeskOldDataUploader.exe"
+                  WorkingDirectory="INSTALLFOLDER" />
+
+        <RemoveFolder Id="RemoveShortcutFolder"
+                      Directory="ShortcutFolder"
+                      On="uninstall" />
+
+        <!--
+          A per-machine component still needs a key path it owns. HKLM rather
+          than HKMU: the package is fixed at perMachine, and the ambiguous root
+          alongside an all-users shortcut is what ICE57 objects to.
+        -->
+        <RegistryValue Root="HKLM"
+                       Key="Software\Excellent Publicity\EPDesk Old User Data Uploader"
+                       Name="InstallFolder"
+                       Type="string"
+                       Value="[INSTALLFOLDER]"
+                       KeyPath="yes" />
+      </Component>
+    </ComponentGroup>
+  </Fragment>
+</Wix>

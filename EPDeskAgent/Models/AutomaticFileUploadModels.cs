@@ -16,6 +16,7 @@ public sealed class InitiateAutomaticFileUploadRequest
     public string Extension { get; set; } = "";
     public long SizeBytes { get; set; }
     public DateTime LastModifiedAtUtc { get; set; }
+    public string Sha256 { get; set; } = "";
 }
 
 public sealed class InitiateAutomaticFileUploadResponse

@@ -1,0 +1,19 @@
+# Keeps `railway up` uploads to source only. Mirrors .dockerignore, which the
+# builder applies anyway, so excluding these here just avoids shipping a few
+# hundred megabytes of build output over the wire on every deploy.
+.git/
+.vs/
+.env
+.env.*
+!.env.example
+**/bin/
+**/obj/
+**/*.db
+**/*.db-shm
+**/*.db-wal
+artifacts/
+publish/
+EPDeskAgent/
+EPDeskApi/
+EPDeskApi_new/
+WebApplication1/

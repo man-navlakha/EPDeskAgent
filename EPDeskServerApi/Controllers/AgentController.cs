@@ -86,16 +86,40 @@ public class AgentController : ControllerBase
                 });
             }
 
-            foreach (var file in request.Files)
-            {
-                if (string.IsNullOrWhiteSpace(file.FullPath))
-                {
-                    continue;
-                }
+            // One row per path: the agent can send the same path twice in a
+            // batch, and the last entry wins. Without this the unique index on
+            // (DeviceCode, FullPath) rejects the whole batch.
+            var incoming = request.Files
+                .Where(x => !string.IsNullOrWhiteSpace(x.FullPath))
+                .GroupBy(x => x.FullPath!, StringComparer.Ordinal)
+                .ToDictionary(g => g.Key, g => g.Last(), StringComparer.Ordinal);
 
-                var existing = await _db.FileIndexes.FirstOrDefaultAsync(x =>
+            if (incoming.Count == 0)
+            {
+                return Ok(new
+                {
+                    success = true,
+                    count = 0,
+                    message = "No files received."
+                });
+            }
+
+            // Load every match in one round trip. Querying per file turned a
+            // 500-file batch into 500 SELECTs, which is what flooded the logs
+            // and the connection pool.
+            var paths = incoming.Keys.ToList();
+
+            var existingByPath = await _db.FileIndexes
+                .Where(x =>
                     x.DeviceCode == request.DeviceCode &&
-                    x.FullPath == file.FullPath);
+                    paths.Contains(x.FullPath))
+                .ToDictionaryAsync(x => x.FullPath, StringComparer.Ordinal);
+
+            var indexedAtUtc = DateTime.UtcNow;
+
+            foreach (var (fullPath, file) in incoming)
+            {
+                existingByPath.TryGetValue(fullPath, out var existing);
 
                 var createdAtUtc = ForceUtc(file.CreatedAtUtc);
                 var updatedAtUtc = ForceUtc(file.UpdatedAtUtc);
@@ -106,14 +130,14 @@ public class AgentController : ControllerBase
                     {
                         Id = Guid.NewGuid(),
                         DeviceCode = request.DeviceCode,
-                        FullPath = file.FullPath,
+                        FullPath = fullPath,
                         DirectoryPath = file.DirectoryPath ?? "",
                         FileName = file.FileName ?? "",
                         Extension = file.Extension ?? "",
                         SizeBytes = file.SizeBytes,
                         CreatedAtUtc = createdAtUtc,
                         UpdatedAtUtc = updatedAtUtc,
-                        LastIndexedAtUtc = DateTime.UtcNow,
+                        LastIndexedAtUtc = indexedAtUtc,
                         IsDeleted = file.IsDeleted
                     };
 
@@ -127,7 +151,7 @@ public class AgentController : ControllerBase
                     existing.SizeBytes = file.SizeBytes;
                     existing.CreatedAtUtc = createdAtUtc;
                     existing.UpdatedAtUtc = updatedAtUtc;
-                    existing.LastIndexedAtUtc = DateTime.UtcNow;
+                    existing.LastIndexedAtUtc = indexedAtUtc;
                     existing.IsDeleted = file.IsDeleted;
                 }
             }
@@ -137,7 +161,7 @@ public class AgentController : ControllerBase
             return Ok(new
             {
                 success = true,
-                count = request.Files.Count
+                count = incoming.Count
             });
         }
         catch (Exception ex)

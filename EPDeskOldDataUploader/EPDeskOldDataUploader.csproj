@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
+    <AssemblyName>EPDeskOldDataUploader</AssemblyName>
+    <RootNamespace>EPDeskOldDataUploader</RootNamespace>
+    <Version>1.3.0</Version>
+    <!-- An internal English-only tool has no use for 13 folders of translated
+         framework resources, and dropping them keeps the installed layout flat. -->
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+  </PropertyGroup>
+
+</Project>

@@ -20,6 +20,13 @@ public class AppDbContext : DbContext
     public DbSet<DeviceScanExclusion> DeviceScanExclusions => Set<DeviceScanExclusion>();
     public DbSet<AutomaticFileUpload> AutomaticFileUploads => Set<AutomaticFileUpload>();
     public DbSet<FileUploadPolicy> FileUploadPolicies => Set<FileUploadPolicy>();
+    public DbSet<OldUserDataImportJob> OldUserDataImportJobs => Set<OldUserDataImportJob>();
+    public DbSet<OldUserDataFile> OldUserDataFiles => Set<OldUserDataFile>();
+    public DbSet<Document> Documents => Set<Document>();
+    public DbSet<DocumentVersion> DocumentVersions => Set<DocumentVersion>();
+    public DbSet<ExtractionJob> ExtractionJobs => Set<ExtractionJob>();
+    public DbSet<DocumentSection> DocumentSections => Set<DocumentSection>();
+    public DbSet<DocumentDerivative> DocumentDerivatives => Set<DocumentDerivative>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -83,5 +90,54 @@ public class AppDbContext : DbContext
 
         modelBuilder.Entity<AutomaticFileUpload>()
             .HasIndex(x => x.UpdatedAtUtc);
+
+        modelBuilder.Entity<AutomaticFileUpload>()
+            .Property(x => x.B2VersionId)
+            .HasMaxLength(256);
+
+        modelBuilder.Entity<AutomaticFileUpload>()
+            .Property(x => x.ObjectETag)
+            .HasMaxLength(256);
+
+        modelBuilder.Entity<AutomaticFileUpload>()
+            .Property(x => x.Sha256)
+            .HasMaxLength(64);
+
+        modelBuilder.Entity<OldUserDataImportJob>()
+            .HasIndex(x => x.RootPathIdentity)
+            .IsUnique();
+
+        modelBuilder.Entity<OldUserDataImportJob>()
+            .HasIndex(x => x.Status);
+
+        modelBuilder.Entity<OldUserDataFile>()
+            .HasIndex(x => new { x.ImportJobId, x.FullPath })
+            .IsUnique();
+
+        modelBuilder.Entity<OldUserDataFile>()
+            .HasIndex(x => new { x.ImportJobId, x.Status });
+
+        modelBuilder.Entity<OldUserDataFile>()
+            .HasIndex(x => new { x.ImportJobId, x.DeviceCode });
+
+        modelBuilder.Entity<OldUserDataFile>()
+            .Property(x => x.B2VersionId)
+            .HasMaxLength(256);
+
+        modelBuilder.Entity<OldUserDataFile>()
+            .Property(x => x.ObjectETag)
+            .HasMaxLength(256);
+
+        modelBuilder.Entity<OldUserDataFile>()
+            .Property(x => x.Sha256)
+            .HasMaxLength(64);
+
+        modelBuilder.Entity<OldUserDataFile>()
+            .HasOne(x => x.ImportJob)
+            .WithMany(x => x.Files)
+            .HasForeignKey(x => x.ImportJobId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        modelBuilder.ConfigureDocumentExtraction();
     }
 }

@@ -19,5 +19,6 @@
         public string UploadStatus { get; set; } = "pending";
         public string UploadError { get; set; } = "";
         public DateTime? LastUploadAttemptAtUtc { get; set; }
+        public int UploadAttemptCount { get; set; }
     }
 }

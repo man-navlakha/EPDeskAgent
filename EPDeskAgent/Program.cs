@@ -1,5 +1,6 @@
 using EPDeskAgent;
 using EPDeskAgent.Database;
+using EPDeskAgent.Models;
 using EPDeskAgent.Scanner;
 using EPDeskAgent.Services;
 
@@ -12,6 +13,23 @@ var builder = Host.CreateApplicationBuilder(new HostApplicationBuilderSettings
     Args = args,
     ContentRootPath = AppContext.BaseDirectory
 });
+
+builder.Services
+    .AddOptions<AgentFileUploadSecurityOptions>()
+    .Bind(
+        builder.Configuration.GetSection(
+            AgentFileUploadSecurityOptions.SectionName
+        )
+    )
+    .Validate(
+        options => AgentFileUploadSecurityOptions.HasValidApiKey(
+            options.AgentFileUploadApiKey
+        ),
+        $"Security:AgentFileUploadApiKey is required and must contain at least " +
+        $"{AgentFileUploadSecurityOptions.MinimumApiKeyLength} characters without " +
+        "leading, trailing, or control characters."
+    )
+    .ValidateOnStart();
 
 builder.Services.AddWindowsService(options =>
 {

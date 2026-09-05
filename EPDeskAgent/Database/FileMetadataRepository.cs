@@ -82,6 +82,15 @@ public class FileMetadataRepository
                   OR files.is_deleted IS NOT 0
                 THEN 'pending'
                 ELSE files.sync_status
+            END,
+            -- A new version of the file deserves a clean slate, otherwise a file
+            -- that was quarantined while unreadable would stay backed off even
+            -- after the user makes it available again.
+            upload_attempt_count = CASE
+                WHEN files.size_bytes IS NOT excluded.size_bytes
+                  OR files.updated_at_utc IS NOT excluded.updated_at_utc
+                THEN 0
+                ELSE files.upload_attempt_count
             END;
         """;
 
@@ -195,7 +204,8 @@ public class FileMetadataRepository
             uploaded_updated_at_utc AS UploadedUpdatedAtUtc,
             upload_status AS UploadStatus,
             upload_error AS UploadError,
-            last_upload_attempt_at_utc AS LastUploadAttemptAtUtc
+            last_upload_attempt_at_utc AS LastUploadAttemptAtUtc,
+            upload_attempt_count AS UploadAttemptCount
         FROM files
         WHERE id > @AfterId
           AND is_deleted = 0
@@ -206,9 +216,23 @@ public class FileMetadataRepository
               OR uploaded_size_bytes != size_bytes
               OR uploaded_updated_at_utc != updated_at_utc
           )
+          AND (
+              -- A file that keeps failing backs off instead of being retried on
+              -- every pass. Without this a single unreadable file (for example an
+              -- OneDrive placeholder) is picked first every time and blocks the
+              -- whole queue behind it.
+              upload_attempt_count = 0
+              OR last_upload_attempt_at_utc IS NULL
+              OR (upload_attempt_count <= 2 AND last_upload_attempt_at_utc < @RetryAfterShort)
+              OR (upload_attempt_count <= 4 AND last_upload_attempt_at_utc < @RetryAfterMedium)
+              OR (upload_attempt_count <= 7 AND last_upload_attempt_at_utc < @RetryAfterLong)
+              OR last_upload_attempt_at_utc < @RetryAfterQuarantine
+          )
         ORDER BY id
         LIMIT @Limit;
         """;
+
+        var now = DateTime.UtcNow;
 
         var files = await connection.QueryAsync<FileMetadata>(
             sql,
@@ -216,7 +240,11 @@ public class FileMetadataRepository
             {
                 AfterId = afterId,
                 Extensions = extensions.Select(x => x.ToLowerInvariant()).ToArray(),
-                Limit = limit
+                Limit = limit,
+                RetryAfterShort = now.AddMinutes(-15),
+                RetryAfterMedium = now.AddHours(-2),
+                RetryAfterLong = now.AddHours(-12),
+                RetryAfterQuarantine = now.AddDays(-7)
             }
         );
 
@@ -250,7 +278,8 @@ public class FileMetadataRepository
                 uploaded_updated_at_utc = @UpdatedAtUtc,
                 upload_status = 'completed',
                 upload_error = '',
-                last_upload_attempt_at_utc = @AttemptedAtUtc
+                last_upload_attempt_at_utc = @AttemptedAtUtc,
+                upload_attempt_count = 0
             WHERE id = @Id
               AND size_bytes = @SizeBytes
               AND updated_at_utc = @UpdatedAtUtc;
@@ -274,7 +303,8 @@ public class FileMetadataRepository
             UPDATE files
             SET upload_status = 'failed',
                 upload_error = @ErrorMessage,
-                last_upload_attempt_at_utc = @AttemptedAtUtc
+                last_upload_attempt_at_utc = @AttemptedAtUtc,
+                upload_attempt_count = upload_attempt_count + 1
             WHERE id = @Id;
             """,
             new

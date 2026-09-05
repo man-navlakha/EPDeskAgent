@@ -1,0 +1,11 @@
+**
+!EPDeskExtractionSandbox/
+!EPDeskExtractionSandbox/**
+!EPDeskExtractionWorker/
+!EPDeskExtractionWorker/Services/
+!EPDeskExtractionWorker/Services/Extraction/
+!EPDeskExtractionWorker/Services/Extraction/**
+EPDeskExtractionSandbox/bin/
+EPDeskExtractionSandbox/obj/
+EPDeskExtractionSandbox/.env
+EPDeskExtractionSandbox/.env.*
