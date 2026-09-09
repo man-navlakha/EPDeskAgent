@@ -10,14 +10,16 @@ namespace EPDeskServerApi.Controllers;
 public class AgentController : ControllerBase
 {
     private readonly AppDbContext _db;
+    private readonly ILogger<AgentController> _logger;
 
     private const string FolderPathExclusionType = "folder_path";
     private const string FolderNameExclusionType = "folder_name";
     private const string FileExtensionExclusionType = "file_extension";
 
-    public AgentController(AppDbContext db)
+    public AgentController(AppDbContext db, ILogger<AgentController> logger)
     {
         _db = db;
+        _logger = logger;
     }
 
     [HttpPost("heartbeat")]
@@ -166,12 +168,18 @@ public class AgentController : ControllerBase
         }
         catch (Exception ex)
         {
+            // The detail stays in the server log. This endpoint is reachable
+            // without a key, so the response must not describe the internals.
+            _logger.LogError(
+                ex,
+                "File metadata sync failed for device {DeviceCode}.",
+                request?.DeviceCode
+            );
+
             return StatusCode(500, new
             {
                 success = false,
-                error = ex.Message,
-                inner = ex.InnerException?.Message,
-                stack = ex.StackTrace
+                error = "File metadata sync failed."
             });
         }
     }

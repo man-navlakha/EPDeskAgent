@@ -87,6 +87,20 @@ using (var scope = app.Services.CreateScope())
 app.UseSwagger();
 app.UseSwaggerUI();
 
+// Lets you confirm which build Railway is actually running without guessing
+// from commit dates. Deliberately does not touch the database so a database
+// blip cannot take the whole service out of rotation.
+var serverVersion = typeof(Program).Assembly.GetName().Version?.ToString() ?? "unknown";
+var startedAtUtc = DateTime.UtcNow;
+
+app.MapGet("/health", () => Results.Ok(new
+{
+    status = "ok",
+    version = serverVersion,
+    startedAtUtc,
+    uptimeSeconds = (long)(DateTime.UtcNow - startedAtUtc).TotalSeconds
+}));
+
 app.MapControllers();
 
 app.Run();

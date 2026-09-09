@@ -126,13 +126,13 @@ Build the project directly from the repository root:
 
 ```bash
 dotnet build EPDeskExtractionSandbox/EPDeskExtractionSandbox.csproj
-dotnet test EPDeskExtractionSandbox.Tests/EPDeskExtractionSandbox.Tests.csproj
 docker build -f EPDeskExtractionSandbox/Dockerfile .
 ```
 
-The .NET tests validate protocol framing, response bounds, readiness, configuration
-limits, and fail-closed verdict mapping without requiring ClamAV. A Docker smoke
-test is still required before production because it verifies Debian package paths,
+The .NET test project was removed, so protocol framing, response bounds, readiness,
+configuration limits, and fail-closed verdict mapping are no longer covered by
+automated tests. A Docker smoke test is required before production because it
+verifies Debian package paths,
 the separate non-root identities/socket permissions, FreshClam notification, and
 an actual EICAR test scan. The smoke gate must also put EICAR after more than the
 configured `MaxFiles` entries in a synthetic archive. `AlertExceedsMax` does not

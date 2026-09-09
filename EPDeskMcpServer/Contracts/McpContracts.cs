@@ -12,6 +12,11 @@ public sealed record PagedResult<T>(
     int Offset,
     int Limit,
     int Returned,
+    // Null on the final page. The generated tool schema marks this required,
+    // and the MCP serializer drops nulls by default, so the last page failed
+    // schema validation and could not be read at all. Keep the null on the
+    // wire so "no further pages" stays expressible.
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.Never)]
     int? NextOffset,
     IReadOnlyList<T> Items
 );

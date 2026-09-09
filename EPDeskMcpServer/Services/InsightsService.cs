@@ -13,6 +13,10 @@ public sealed class InsightsService
 {
     private const int MaxGroupRows = 25;
 
+    // Agents heartbeat once a minute, so a machine that has missed two is
+    // treated as offline. Matches the admin device list in the server API.
+    private const int OnlineWindowMinutes = 2;
+
     private readonly IDbContextFactory<AppDbContext> _dbFactory;
 
     public InsightsService(IDbContextFactory<AppDbContext> dbFactory)
@@ -36,10 +40,25 @@ public sealed class InsightsService
             devices = devices.Where(d => d.IsActive);
         }
 
+        // Devices.Status is only ever written as "online" — nothing marks a
+        // machine offline when it stops calling home — so it is derived from
+        // the last heartbeat instead, on the same window the admin API uses.
+        var onlineSince = DateTime.UtcNow.AddMinutes(-OnlineWindowMinutes);
+
         if (!string.IsNullOrWhiteSpace(status))
         {
             var normalized = status.Trim().ToLowerInvariant();
-            devices = devices.Where(d => d.Status == normalized);
+
+            devices = normalized switch
+            {
+                "online" => devices.Where(
+                    d => d.LastSeenAtUtc != null && d.LastSeenAtUtc > onlineSince
+                ),
+                "offline" => devices.Where(
+                    d => d.LastSeenAtUtc == null || d.LastSeenAtUtc <= onlineSince
+                ),
+                _ => devices.Where(d => false)
+            };
         }
 
         var totalCount = await devices.CountAsync(cancellationToken);
@@ -93,7 +112,9 @@ public sealed class InsightsService
                 device.Hostname,
                 device.Username,
                 device.AgentVersion,
-                device.Status,
+                device.LastSeenAtUtc != null && device.LastSeenAtUtc > onlineSince
+                    ? "online"
+                    : "offline",
                 device.IsActive,
                 device.LastSeenAtUtc,
                 device.RegisteredAtUtc,
